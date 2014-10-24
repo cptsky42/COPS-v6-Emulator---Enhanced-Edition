@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Syndicate>
+  <section name="Informations">
+    <entry name="UniqId">1</entry>
+    <entry name="Name">Dark_Lord</entry>
+    <entry name="Announce">Nouvelle guilde!</entry>
+    <entry name="LeaderUID">1000001</entry>
+    <entry name="LeaderName">Test37[PM]</entry>
+    <entry name="Money">43505306</entry>
+    <entry name="FealtySynUID">0</entry>
+    <entry name="Enemy0">0</entry>
+    <entry name="Enemy1">0</entry>
+    <entry name="Enemy2">0</entry>
+    <entry name="Enemy3">0</entry>
+    <entry name="Enemy4">0</entry>
+    <entry name="Ally0">0</entry>
+    <entry name="Ally1">0</entry>
+    <entry name="Ally2">0</entry>
+    <entry name="Ally3">0</entry>
+    <entry name="Ally4">0</entry>
+  </section>
+</Syndicate>

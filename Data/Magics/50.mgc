@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Magic>
+  <section name="Informations">
+    <entry name="UniqId">50</entry>
+    <entry name="OwnerUID">1000004</entry>
+    <entry name="Type">1280</entry>
+    <entry name="Level">0</entry>
+    <entry name="Exp">2</entry>
+    <entry name="OldLevel">0</entry>
+    <entry name="Unlearn">False</entry>
+  </section>
+</Magic>

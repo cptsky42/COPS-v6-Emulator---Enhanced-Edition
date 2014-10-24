@@ -1,0 +1,103 @@
+************************
+****** Structures ******
+************************
+
+Options: Text - Control : Text - Control
+Example: Yes. - 1 : No. - 255
+
+Requirements: Req Operator Value & Req Operator Value
+Example: CPs > 1000 & InvContains == 1088000:1
+
+Rewards: Rew[OperatorValue] & Rew[OperatorValue]
+Example: CurHP[1] & CPs[-1000] & DelItem[1088000:1]
+
+************************
+***** Enumerations *****
+************************
+
+Requirement operator:
+<
+>
+<=
+>=
+==
+!=
+
+Requirement (Operator)
+CurHP (ALL)
+MaxHP (ALL)
+CurMP (ALL)
+MaxMP (ALL)
+Money (ALL)
+Exp (ALL)
+PKPoint (ALL)
+Job (ALL)
+StatP (ALL)
+Model (ALL)
+Level (ALL)
+Spirit (ALL)
+Vitality (ALL)
+Strength (ALL)
+Agility (ALL)
+Hair (ALL)
+CPs (ALL)
+InvContains (== AND !=)
+InvCount (ALL)
+SkillContains (== AND !=)
+ProfContains (== AND !=)
+
+InvContains -> ID:COUNT
+SkillContains -> ID
+ProfContains -> ID
+
+----------------------------
+
+Reward operator:
++
+-
+*
+/
+=
+
+Reward (Operator)
+CurHP (ALL)
+MaxHP (ALL)
+CurMP (ALL)
+MaxMP (ALL)
+Money (ALL)
+Exp (ALL)
+PKPoint (ALL)
+Job (ALL)
+StatP (ALL)
+Model (ALL)
+Level (ALL)
+Spirit (ALL)
+Vitality (ALL)
+Strength (ALL)
+Agility (ALL)
+Hair (ALL)
+CPs (ALL)
+VPs (ALL)
+AddItem (NONE)
+DelItem (NONE)
+Teleport (NONE)
+AddSkill (NONE)
+DelSkill (NONE)
+AddProf (NONE)
+DelProf (NONE)
+RemoteControl (NONE)
+
+AddItem -> ID-CRAFT-BLESS-ENCHANT-GEM1-GEM2:COUNT
+DelItem -> ID:COUNT
+Teleport -> ID:X:Y
+AddSkill -> ID
+DelSkill -> ID
+AddProf -> ID
+DelProf -> ID
+RemoteControl -> PARAM
+RandOpt -> MIN:MAX
+
+
+Please do not release any information or any program from this package!
+
+Copyright (C) Logik. Inc 2008-2011

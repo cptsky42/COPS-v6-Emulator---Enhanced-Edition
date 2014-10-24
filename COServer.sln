@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MsgServer", "MsgServer\MsgServer.csproj", "{6F9B8A39-5CB0-44C2-A0B9-70F3E929E218}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccServer", "AccServer\AccServer.csproj", "{3FB1E23C-A36C-412E-A7EC-75C8A629C438}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6F9B8A39-5CB0-44C2-A0B9-70F3E929E218}.Debug|x64.ActiveCfg = Debug|x64
+		{6F9B8A39-5CB0-44C2-A0B9-70F3E929E218}.Debug|x64.Build.0 = Debug|x64
+		{6F9B8A39-5CB0-44C2-A0B9-70F3E929E218}.Debug|x86.ActiveCfg = Debug|x86
+		{6F9B8A39-5CB0-44C2-A0B9-70F3E929E218}.Debug|x86.Build.0 = Debug|x86
+		{6F9B8A39-5CB0-44C2-A0B9-70F3E929E218}.Release|x64.ActiveCfg = Release|x64
+		{6F9B8A39-5CB0-44C2-A0B9-70F3E929E218}.Release|x64.Build.0 = Release|x64
+		{6F9B8A39-5CB0-44C2-A0B9-70F3E929E218}.Release|x86.ActiveCfg = Release|x86
+		{6F9B8A39-5CB0-44C2-A0B9-70F3E929E218}.Release|x86.Build.0 = Release|x86
+		{3FB1E23C-A36C-412E-A7EC-75C8A629C438}.Debug|x64.ActiveCfg = Debug|x64
+		{3FB1E23C-A36C-412E-A7EC-75C8A629C438}.Debug|x64.Build.0 = Debug|x64
+		{3FB1E23C-A36C-412E-A7EC-75C8A629C438}.Debug|x86.ActiveCfg = Debug|x86
+		{3FB1E23C-A36C-412E-A7EC-75C8A629C438}.Debug|x86.Build.0 = Debug|x86
+		{3FB1E23C-A36C-412E-A7EC-75C8A629C438}.Release|x64.ActiveCfg = Release|x64
+		{3FB1E23C-A36C-412E-A7EC-75C8A629C438}.Release|x64.Build.0 = Release|x64
+		{3FB1E23C-A36C-412E-A7EC-75C8A629C438}.Release|x86.ActiveCfg = Release|x86
+		{3FB1E23C-A36C-412E-A7EC-75C8A629C438}.Release|x86.Build.0 = Release|x86
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

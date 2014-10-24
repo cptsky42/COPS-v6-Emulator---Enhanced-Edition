@@ -1,0 +1,55 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<MsgServer>
+  <section name="Socket">
+    <entry name="Port">5816</entry>
+    <entry name="BackLog">50</entry>
+	<entry name="ThreadAmount">5</entry>
+  </section>
+  <section name="Program">
+    <entry name="AuthIP">127.0.0.1</entry>
+    <entry name="AuthPort">9958</entry>
+    <entry name="Name">Dextérité</entry>
+    <entry name="Encoding">iso-8859-1</entry>
+    <entry name="Debug">true</entry>
+  </section>
+  <section name="Version">
+    <entry name="French">1025</entry>
+    <entry name="English">2000</entry>
+  </section>
+  <section name="Backup">
+    <entry name="UseFTP">false</entry>
+    <entry name="Server">
+    </entry>
+    <entry name="Username">
+    </entry>
+    <entry name="Password">
+    </entry>
+  </section>
+  <section name="Cryptography">
+    <entry name="COSAC_PKey">13FA0F8F</entry>
+    <entry name="COSAC_GKey">6D5C7958</entry>
+  </section>
+  <section name="Rates">
+    <entry name="Refined">3.45</entry>
+    <entry name="Unique">2.75</entry>
+    <entry name="Elite">2.45</entry>
+    <entry name="Super">2.15</entry>
+    <entry name="Craft">2.35</entry>
+    <entry name="Meteor">2.85</entry>
+    <entry name="DragonBall">3.15</entry>
+    <entry name="Money">2.5</entry>
+    <entry name="CPs">1.0</entry>
+    <entry name="Exp">15.0</entry>
+    <entry name="Socket">0.85</entry>
+  </section>
+  <section name="Records">
+    <entry name="MaxPlayers">3</entry>
+  </section>
+  <section name="Holders">
+    <entry name="1011">1</entry>
+    <entry name="1020">1</entry>
+    <entry name="1000">1</entry>
+    <entry name="1015">1</entry>
+	<entry name="1038">1</entry>
+  </section>
+</MsgServer>

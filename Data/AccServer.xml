@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AccServer>
+  <section name="Socket">
+    <entry name="Port">9958</entry>
+	<entry name="BackLog">100</entry>
+  </section>	
+  <section name="Program">  
+    <entry name="Encoding">iso-8859-1</entry>
+	<entry name="Debug">true</entry>
+  </section>
+  <section name="Cryptography">
+      <entry name="COSAC_PKey">13FA0F8F</entry>
+      <entry name="COSAC_GKey">6D5C7958</entry>
+      <entry name="CORC5_PWKey">91E78C6C</entry>
+      <entry name="CORC5_QWKey">27F41D3E</entry>
+  </section>
+</AccServer>
