@@ -1,6 +1,6 @@
 // * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+// * Copyright © 2010-2011, 2014
+// * COPS v6 Emulator
 
 using System;
 using System.Collections.Generic;
@@ -11,69 +11,45 @@ namespace COServer
 {
     public class Team
     {
-        private const Int32 _GUIDING_TIME = 60 * 60;
-        private const Int32 _RANGE_EXPSHARE = 32;
-        private const Int32 _RANGE_TEAM_STATUS = 12;
-        private const Int32 _MAX_TEAM_EXP_TIMES = 360;
+        private const Int32 GUIDING_TIME = 60 * 60;
+        private const Int32 RANGE_EXP_SHARE = 32;
+        private const Int32 RANGE_TEAM_STATUS = 12;
+        private const Int32 MAX_TEAM_EXP_TIMES = 360;
 
-        public const Int32 _MAX_TEAMAMOUNT = 4;
+        public const Int32 MAX_TEAM_AMOUNT = 4;
 
-        private Int32 m_UniqId = -1;
-        private Player m_Leader = null;
-        private Boolean m_JoinForbidden;
-        private Boolean m_MoneyForbidden;
-        private Boolean m_ItemForbidden;
+        private readonly Int32 mUID;
+        private readonly Player mLeader;
+        private Boolean mJoinForbidden;
+        private Boolean mMoneyForbidden;
+        private Boolean mItemForbidden;
 
-        public Player[] Members;
+        public readonly Player[] Members = new Player[MAX_TEAM_AMOUNT];
 
-        public Int32 UniqId { get { return m_UniqId; } }
-        public Player Leader { get { return m_Leader; } }
-        public Boolean MoneyForbidden { get { return m_MoneyForbidden; } }
-        public Boolean ItemForbidden { get { return m_ItemForbidden; } }
+        public Int32 UniqId { get { return mUID; } }
+        public Player Leader { get { return mLeader; } }
+        public Boolean MoneyForbidden { get { return mMoneyForbidden; } }
+        public Boolean ItemForbidden { get { return mItemForbidden; } }
 
-        public Team()
+        private Team(Player aLeader)
         {
-            m_JoinForbidden = false;
-            m_MoneyForbidden = false;
-            m_ItemForbidden = true;
+            mUID = aLeader.UniqId;
+            mLeader = aLeader;
 
-            Members = new Player[_MAX_TEAMAMOUNT];
+            mJoinForbidden = false;
+            mMoneyForbidden = false;
+            mItemForbidden = true;
+
             for (Int32 i = 0; i < Members.Length; i++)
                 Members[i] = null;
         }
 
-        ~Team()
+        public static Team CreateNew(Player aLeader)
         {
-            m_Leader = null;
-            Members = null;
+            return new Team(aLeader);
         }
 
-        public static Team CreateNew(Player Leader)
-        {
-            Team Team = new Team();
-            if (Team == null)
-                return null;
-
-            if (!Team.Create(Leader))
-            {
-                Team = null;
-                return null;
-            }
-
-            return Team;
-        }
-
-        public Boolean Create(Player Leader)
-        {
-            if (Leader == null)
-                return false;
-
-            m_UniqId = Leader.UniqId;
-            m_Leader = Leader;
-            return true;
-        }
-
-        public void LeaderXY()
+        public void LeaderPosition()
         {
             if (Leader != null)
             {
@@ -87,7 +63,7 @@ namespace COServer
                         if (Member.Map != Leader.Map)
                             continue;
 
-                        Member.Send(MsgAction.Create(Leader, 0, (MsgAction.Action)101));
+                        Member.Send(new MsgAction(Leader, 0, (MsgAction.Action)101));
                     }
                 }
             }
@@ -99,7 +75,7 @@ namespace COServer
                 return false;
 
             Int32 OldAmount = GetMemberAmount();
-            if (OldAmount >= _MAX_TEAMAMOUNT)
+            if (OldAmount >= MAX_TEAM_AMOUNT)
                 return false;
 
             if (Player == null)
@@ -120,8 +96,8 @@ namespace COServer
 
             if (Send)
             {
-                Leader.Send(MsgTeamMember.Create(Player, MsgTeamMember.Action.AddMember));
-                Player.Send(MsgTeamMember.Create(Leader, MsgTeamMember.Action.AddMember));
+                Leader.Send(new MsgTeamMember(Player, MsgTeamMember.Action.AddMember));
+                Player.Send(new MsgTeamMember(Leader, MsgTeamMember.Action.AddMember));
                 for (Int32 i = 0; i < Members.Length; i++)
                 {
                     Player Member = Members[i];
@@ -132,10 +108,10 @@ namespace COServer
                     if (Player.UniqId == Member.UniqId)
                         continue;
 
-                    Member.Send(MsgTeamMember.Create(Player, MsgTeamMember.Action.AddMember));
-                    Player.Send(MsgTeamMember.Create(Member, MsgTeamMember.Action.AddMember));
+                    Member.Send(new MsgTeamMember(Player, MsgTeamMember.Action.AddMember));
+                    Player.Send(new MsgTeamMember(Member, MsgTeamMember.Action.AddMember));
                 }
-                Player.Send(MsgTeamMember.Create(Player, MsgTeamMember.Action.AddMember));
+                Player.Send(new MsgTeamMember(Player, MsgTeamMember.Action.AddMember));
             }
             return true;
         }
@@ -160,8 +136,8 @@ namespace COServer
 
             if (Send)
             {
-                Leader.Send(MsgTeam.Create(Member.UniqId, MsgTeam.Action.Leave));
-                Member.Send(MsgTeam.Create(Leader.UniqId, MsgTeam.Action.Leave));
+                Leader.Send(new MsgTeam(Member, MsgTeam.Action.Leave));
+                Member.Send(new MsgTeam(Leader, MsgTeam.Action.Leave));
                 for (Int32 i = 0; i < Members.Length; i++)
                 {
                     if (Members[i] == null)
@@ -170,8 +146,8 @@ namespace COServer
                     if (Member.UniqId == Members[i].UniqId)
                         continue;
 
-                    Members[i].Send(MsgTeam.Create(Member.UniqId, MsgTeam.Action.Leave));
-                    Member.Send(MsgTeam.Create(Members[i].UniqId, MsgTeam.Action.Leave));
+                    Members[i].Send(new MsgTeam(Member, MsgTeam.Action.Leave));
+                    Member.Send(new MsgTeam(Members[i], MsgTeam.Action.Leave));
                 }
             }
             return true;
@@ -182,7 +158,7 @@ namespace COServer
             if (Leader == null)
                 return;
 
-            if (Leader.UniqId != m_UniqId)
+            if (Leader.UniqId != mUID)
                 return;
 
             foreach (Player Member in Members)
@@ -193,13 +169,12 @@ namespace COServer
                 if (Member.UniqId == Leader.UniqId)
                     continue;
 
-                Member.Send(MsgTeam.Create(m_UniqId, MsgTeam.Action.Dismiss));
+                Member.Send(new MsgTeam(this, MsgTeam.Action.Dismiss));
                 Member.Team = null;
             }
 
-            Leader.Send(MsgTeam.Create(m_UniqId, MsgTeam.Action.Dismiss));
-            Leader.DelFlag(Player.Flag.TeamLeader);
-            World.BroadcastRoomMsg(Leader, MsgUserAttrib.Create(Leader, Leader.Flags, MsgUserAttrib.Type.Flags), true);
+            Leader.Send(new MsgTeam(this, MsgTeam.Action.Dismiss));
+            Leader.DetachStatus(Status.TeamLeader);
             Leader.Team = null;
         }
 
@@ -211,7 +186,7 @@ namespace COServer
             return Members[Index].UniqId;
         }
 
-        public Player GetLeader() { return m_Leader; }
+        public Player GetLeader() { return mLeader; }
 
         public Int32 GetMemberAmount()
         {
@@ -221,18 +196,18 @@ namespace COServer
                 if (Member != null)
                     Count++;
             }
-            return Math.Min(Count, _MAX_TEAMAMOUNT);
+            return Math.Min(Count, MAX_TEAM_AMOUNT);
         }
 
-        public void Open() { m_JoinForbidden = false; }
-        public void Close() { m_JoinForbidden = true; }
-        public Boolean IsClosed() { return m_JoinForbidden; }
+        public void Open() { mJoinForbidden = false; }
+        public void Close() { mJoinForbidden = true; }
+        public Boolean IsClosed() { return mJoinForbidden; }
 
-        public void OpenMoney() { m_MoneyForbidden = false; }
-        public void CloseMoney() { m_MoneyForbidden = true; }
+        public void OpenMoney() { mMoneyForbidden = false; }
+        public void CloseMoney() { mMoneyForbidden = true; }
 
-        public void OpenItem() { m_ItemForbidden = false; }
-        public void CloseItem() { m_ItemForbidden = true; }
+        public void OpenItem() { mItemForbidden = false; }
+        public void CloseItem() { mItemForbidden = true; }
 
         public Boolean IsTeamWithNewbie(Monster Target)
         {
@@ -250,8 +225,8 @@ namespace COServer
                 if (Leader.Map != Target.Map)
                     goto Members;
 
-                if (Math.Abs(Leader.X - Target.X) > _RANGE_EXPSHARE ||
-                    Math.Abs(Leader.Y - Target.Y) > _RANGE_EXPSHARE)
+                if (Math.Abs(Leader.X - Target.X) > RANGE_EXP_SHARE ||
+                    Math.Abs(Leader.Y - Target.Y) > RANGE_EXP_SHARE)
                     goto Members; // out of share range
 
                 if (Leader.Level + 20 < MonsterLvl)
@@ -271,8 +246,8 @@ namespace COServer
                 if (Member.Map != Target.Map)
                     continue;
 
-                if (Math.Abs(Member.X - Target.X) > _RANGE_EXPSHARE ||
-                    Math.Abs(Member.Y - Target.Y) > _RANGE_EXPSHARE)
+                if (Math.Abs(Member.X - Target.X) > RANGE_EXP_SHARE ||
+                    Math.Abs(Member.Y - Target.Y) > RANGE_EXP_SHARE)
                     continue; // out of share range
 
                 if (Member.Level + 20 < MonsterLvl)
@@ -295,8 +270,8 @@ namespace COServer
             if (!Leader.IsAlive())
                 goto Members;
 
-            if (Math.Abs(Leader.X - Target.X) > _RANGE_EXPSHARE ||
-                Math.Abs(Leader.Y - Target.Y) > _RANGE_EXPSHARE)
+            if (Math.Abs(Leader.X - Target.X) > RANGE_EXP_SHARE ||
+                Math.Abs(Leader.Y - Target.Y) > RANGE_EXP_SHARE)
                 goto Members; // out of share range
 
             ValidMembers.Add(Leader);
@@ -313,8 +288,8 @@ namespace COServer
                 if (!Members[i].IsAlive())
                     continue;
 
-                if (Math.Abs(Members[i].X - Target.X) > _RANGE_EXPSHARE ||
-                    Math.Abs(Members[i].Y - Target.Y) > _RANGE_EXPSHARE)
+                if (Math.Abs(Members[i].X - Target.X) > RANGE_EXP_SHARE ||
+                    Math.Abs(Members[i].Y - Target.Y) > RANGE_EXP_SHARE)
                     continue; // out of share range
 
                 ValidMembers.Add(Members[i]);
@@ -322,14 +297,14 @@ namespace COServer
 
             foreach (Player Member in ValidMembers)
             {
-                Int32 AddExp = Battle.AdjustExp(Exp, Member, Target);
+                UInt32 AddExp = Battle.AdjustExp(Exp, Member, Target);
 
                 //Max Exp
-                if (AddExp > Member.Level * _MAX_TEAM_EXP_TIMES)
-                    AddExp = Member.Level * _MAX_TEAM_EXP_TIMES;
+                if (AddExp > Member.Level * MAX_TEAM_EXP_TIMES)
+                    AddExp = (UInt32)(Member.Level * MAX_TEAM_EXP_TIMES);
 
                 //Double Exp
-                if (Member.Spouse == Killer.Name)
+                if (Member.Mate == Killer.Name)
                     AddExp *= 2;
 
                 if (IsTeamWithNewbie(Target))
@@ -338,14 +313,14 @@ namespace COServer
                 if (Member.Profession >= 133 && Member.Profession <= 135)
                     AddExp *= 2;
 
-                Member.SendSysMsg(String.Format(STR.Get("STR_TEAM_EXPERIENCE"), Member.AddExp(AddExp, true)));
+                Member.SendSysMsg(StrRes.STR_TEAM_EXPERIENCE, Member.AddExp(AddExp, true));
             }
             ValidMembers.Clear();
         }
 
         public Boolean IsTeamMember(Player Player)
         {
-            if (Player.UniqId == m_Leader.UniqId)
+            if (Player.UniqId == mLeader.UniqId)
                 return true;
 
             for (Int32 i = 0; i < GetMemberAmount(); i++)
@@ -358,7 +333,7 @@ namespace COServer
 
         public Boolean IsTeamMember(Int32 UniqId)
         {
-            if (UniqId == m_Leader.UniqId)
+            if (UniqId == mLeader.UniqId)
                 return true;
 
             for (Int32 i = 0; i < GetMemberAmount(); i++)
@@ -367,6 +342,20 @@ namespace COServer
                     return true;
             }
             return false;
+        }
+
+        public void BroadcastMsg(Msg aMsg)
+        {
+            if (mLeader != null)
+                mLeader.Send(aMsg);
+
+            foreach (Player member in Members)
+            {
+                if (member == null)
+                    continue;
+
+                member.Send(aMsg);
+            }
         }
     }
 }

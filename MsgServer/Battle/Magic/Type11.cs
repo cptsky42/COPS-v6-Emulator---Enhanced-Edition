@@ -1,6 +1,6 @@
 ﻿// * Created by Jean-Philippe Boivin
 // * Copyright © 2011
-// * Logik. Project
+// * COPS v6 Emulator
 
 using System;
 using System.Collections.Generic;
@@ -10,35 +10,29 @@ namespace COServer
 {
     public partial class Battle
     {
-        public partial class Magic
+        //Roar...
+        public static AdvancedEntity[] GetTargetsForType11(Player Attacker)
         {
-            //Roar...
-            public static AdvancedEntity[] GetTargetsForType11(Player Attacker)
+            List<AdvancedEntity> targets = new List<AdvancedEntity>();
+
+            if (Attacker.Team != null)
             {
-                List<AdvancedEntity> Targets = new List<AdvancedEntity>();
-                try
+                Player leader = Attacker.Team.Leader;
+                if (!targets.Contains(leader))
+                    targets.Add(leader);
+
+                Player[] members = Attacker.Team.Members;
+                foreach (Player member in members)
                 {
-                    if (Attacker.Team != null)
-                    {
-                        Player TeamLeader = Attacker.Team.Leader;
-                        if (!Targets.Contains(TeamLeader))
-                            Targets.Add(TeamLeader);
+                    if (member == null)
+                        continue;
 
-                        Player[] TeamMembers = Attacker.Team.Members;
-                        foreach (Player TeamMember in TeamMembers)
-                        {
-                            if (TeamMember == null)
-                                continue;
-
-                            if (!Targets.Contains(TeamMember))
-                                Targets.Add(TeamMember);
-                        }
-                    }
-
-                    return Targets.ToArray();
+                    if (!targets.Contains(member))
+                        targets.Add(member);
                 }
-                catch (Exception Exc) { Program.WriteLine(Exc); return Targets.ToArray(); }
             }
+
+            return targets.ToArray();
         }
     }
 }

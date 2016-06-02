@@ -1,0 +1,9 @@
+AniFile=ani\MapScene.ani
+AniTitle=d_map0216.tga
+OffsetX=-25
+OffsetY=-21
+AniInterval=200
+Width=1
+Height=1
+Thick=10
+Cell[0,0]={0,0,15}

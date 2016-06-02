@@ -1,52 +1,84 @@
-﻿//Int16 MsgLength
-//Int16 MsgType
-//Int32 UniqId
-//Int32 Look
-//Int32 AI_Type
-//UInt16 PosX
-//UInt16 PosY
-//UInt8 Name[36] 
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2014 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
-//MsgID: 1022 MsgLength: 40 Direction: Server -> Client
-//28 00 FE 03 00 00 00 00 C1 4A 19 00 C1 4A 19 00             (........J...J..
-//3C 00 3A 00 18 00 00 00 A0 0F 03 00 00 00 00 00             <.:.............
-//00 00 00 00 00 00 00 00                                     ........
+using System;
+using System.Runtime.CompilerServices;
+using COServer.Entities;
 
-//MsgID: 10010 MsgLength: 38 Direction: Client -> Server
-//26 00 1A 27 13 B5 0A 00 00 00 00 00 00 00 00 00             &..'............
-//F3 A3 1E 05 51 00 01 00 3C 00 3A 00 00 00 00 00             ....Q...<.:.....
-//00 00 00 00 00 00                                           ......
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
-//MsgID: 1105 MsgLength: 52 Direction: Server -> Client
-//34 00 51 04 C1 4A 19 00 3C 00 3A 00 A0 0F 03 00             4.Q..J..<.:.....
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//00 00 00 00                                                 ....
+namespace COServer.Network
+{
+    public class MsgPetInfo : Msg
+    {
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_PETINFO; } }
 
-//MsgID: 2035 MsgLength: 56 Direction: Server -> Client
-//38 00 F3 07 13 B5 0A 00 98 03 00 00 01 00 00 00             8...............
-//3C 00 3A 00 47 61 72 64 69 65 6E 44 60 6F 72 00             <.:.GardienD`or.
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//00 00 00 00 00 00 00 00                                     ........
+        //--------------- Internal Members ---------------
+        private Int32 __Id = 0;
+        private UInt32 __Lookface = 0;
+        private Int32 __AIType = 0;
+        private UInt16 __PosX = 0;
+        private UInt16 __PosY = 0;
+        private String __Name = "";
+        //------------------------------------------------
 
-//MsgID: 10014 MsgLength: 232 Direction: Server -> Client
-//E8 00 1E 27 98 03 00 00 13 B5 0A 00 00 00 00 00             ...'............
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//60 EA 78 00 00 00 3C 00 3A 00 01 00 00 00 00 00             `.x...<.:.......
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00             ................
-//00 00 00 00 00 00 00 00 00 00 02 0B 47 61 72 64             ............Gard
-//69 65 6E 44 60 6F 72 00                                     ienD`or.
+        /// <summary>
+        /// Unique ID of the pet.
+        /// </summary>
+        public Int32 Id
+        {
+            get { return __Id; }
+            set { __Id = value; WriteInt32(4, value); }
+        }
 
-//MsgID: 10010 MsgLength: 38 Direction: Server -> Client
-//26 00 1A 27 13 B5 0A 00 00 00 00 00 00 00 00 00             &..'............
-//00 00 00 00 86 00 01 00 3C 00 3A 00 00 00 00 00             ........<.:.....
-//00 00 00 00 00 00                                           ......
+        public UInt32 Lookface
+        {
+            get { return __Lookface; }
+            set { __Lookface = value; WriteUInt32(8, value); }
+        }
+
+        public Int32 AIType
+        {
+            get { return __AIType; }
+            set { __AIType = value; WriteInt32(12, value); }
+        }
+
+        public UInt16 PosX
+        {
+            get { return __PosX; }
+            set { __PosX = value; WriteUInt16(16, value); }
+        }
+
+        public UInt16 PosY
+        {
+            get { return __PosY; }
+            set { __PosY = value; WriteUInt16(18, value); }
+        }
+
+        public String Name
+        {
+            get { return __Name; }
+            set { __Name = value; WriteString(20, value, MAX_NAME_SIZE); }
+        }
+
+        public MsgPetInfo(Pet aPet)
+            : base(36)
+        {
+            Id = aPet.Id;
+            Lookface = aPet.Look;
+            AIType = 0;
+            PosX = aPet.X;
+            PosY = aPet.Y;
+            Name = aPet.Name;
+        }
+    }
+}

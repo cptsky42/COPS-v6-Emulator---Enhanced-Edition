@@ -1,22 +1,31 @@
-// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010- 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
+using System.Linq;
 using COServer.Entities;
-using CO2_CORE_DLL;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgAction : Msg
+    public class MsgAction : Msg
     {
-        public const Int16 Id = _MSG_ACTION;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_ACTION; } }
 
-        public enum Action
+        public enum Action : ushort
         {
-            None = 0,
             GetPosition = 74,           // to client: idUser is Map
             GetItemSet = 75,
             GetGoodFriend = 76,
@@ -63,808 +72,688 @@ namespace COServer.Network
             ChangeFace = 142,
         };
 
-        public enum PkMode
+        //--------------- Internal Members ---------------
+        private Int32 __Timestamp = 0;
+        private Int32 __UniqId = 0;
+        private Int32 __Data = 0;
+        private UInt16 __X = 0;
+        private UInt16 __Y = 0;
+        private UInt16 __Direction = 0;
+        private Action __Action = (Action)0;
+        //------------------------------------------------
+
+        /// <summary>
+        /// Timestamp of the creation of the message.
+        /// </summary>
+        public Int32 Timestamp
         {
-            Free = 0,
-            Safe = 1,
-            Team = 2,
-            Arrestment = 3,
-        };
-
-        public enum Emotion
-        {
-            None = 0,
-            Dance1 = 1,
-            Dance2 = 2,
-            Dance3 = 3,
-            Dance4 = 4,
-            Dance5 = 5,
-            Dance6 = 6,
-            Dance7 = 7,
-            Dance8 = 8,
-            StandBy = 100,
-            Laugh = 150,
-            GufFaw = 151,
-            Fury = 160,
-            Sad = 170,
-            Excitement = 180,
-            SayHello = 190,
-            Salute = 200,
-            Genuflect = 210,
-            Kneel = 220,
-            Cool = 230,
-            Swim = 240,
-            SitDown = 250,
-            Zazen = 260,
-            Faint = 270,
-            Lie = 271,
-        };
-
-        public enum Dialog
-        {
-            None = 0,
-            Compose = 1,
-            Forge = 2,
-            Forge2 = 3,
-            Warehouse = 4,
-            OfflineTG = 44,
-        };
-
-        public enum Command
-        {
-            QuitGame = 1,
-            HideClient = 2,
-            OnlineShop = 26, //Common (EMoney)
-            TradeCursor = 27,
-            ChatHistorique = 32,
-            ChatColor = 33,
-            DropMoney = 44,
-            SynCursor = 46,
-            QuitSyn = 47,
-            FriendCursor = 54,
-            BlackList = 80,
-            ToS = 101, //StrRes (10367)
-            HideCounter = 105,
-            Crash0 = 114,
-            Capture = 1025,
-            XPSkillShow = 1037,
-            XPSkillHide = 1038,
-            InternetLag1 = 1041,
-            DeleteEnemy = 1052,
-            ShowRevive = 1053,
-            HideRevive = 1054,
-            LeaveWords = 1058,
-            SynStatuary = 1066,
-            EmptyDialog1 = 1070,
-            OtherEquipmentDialog = 1074,
-            GambleOpen = 1077,
-            GambleClose = 1078,
-            InternetLag2 = 1083,
-            AcceptToS = 1085, //StrRes (Text: 10405, 10406 Link: 10367)
-            Compose = 1086,
-            ForgeOpen = 1088,
-            ForgeOpen2 = 1089,
-            WarehouseOpen = 1090,
-            EnchantOpen = 1091,
-            OfflineTG = 1092, 
-            ShoppingMallOpen = 1099,
-            ShoppingMallBtnShow = 1100,
-            ShoppingMallBtnHide = 1101,
-            Crash1 = 1106,
-            EmptyDialog2 = 1116,
-            NoOfflineTG = 1117,
-            MsgRadioEffect = 1130,
-            MsgRadioOpen = 1133,
-            MsgRadioClose = 1135,
-            PathFindingOpen = 1142,
-            PathFindingClose = 1143,
-            Crash2 = 1145,
-            CancelPathFinding = 1146,
-        };
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        public struct MsgInfo
-        {
-            public MsgHeader Header;
-            public Int32 Timestamp;
-            public Int32 UniqId;
-            public Int32 Param;
-            public UInt16 X;
-            public UInt16 Y;
-            public UInt16 Direction;
-            public Int16 Action;
-        };
-
-        public static Byte[] Create(Entity Entity, Int32 Param, Action Action)
-        {
-            try
-            {
-                MsgInfo* Msg = stackalloc MsgInfo[1];
-                Msg->Header.Length = (Int16)sizeof(MsgInfo);
-                Msg->Header.Type = Id;
-
-                Msg->Timestamp = Environment.TickCount;
-                Msg->UniqId = Entity.UniqId;
-                Msg->X = Entity.X;
-                Msg->Y = Entity.Y;
-                Msg->Direction = Entity.Direction;
-                Msg->Param = Param;
-                Msg->Action = (Int16)Action;
-
-                Byte[] Out = new Byte[Msg->Header.Length];
-                Kernel.memcpy(Out, Msg, Out.Length);
-                return Out;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+            get { return __Timestamp; }
+            set { __Timestamp = value; WriteInt32(4, value); }
         }
 
-        public static void Process(Client Client, Byte[] Buffer)
+        /// <summary>
+        /// Unique ID of the entity.
+        /// </summary>
+        public Int32 UniqId
+        {
+            get { return __UniqId; }
+            set { __UniqId = value; WriteInt32(8, value); }
+        }
+
+        /// <summary>
+        /// Data of the action.
+        /// </summary>
+        public Int32 Data
+        {
+            get { return __Data; }
+            set { __Data = value; WriteInt32(12, value); }
+        }
+
+        /// <summary>
+        /// X coord of the entity.
+        /// </summary>
+        public UInt16 X
+        {
+            get { return __X; }
+            set { __X = value; WriteUInt16(16, value); }
+        }
+
+        /// <summary>
+        /// Y coord of the entity.
+        /// </summary>
+        public UInt16 Y
+        {
+            get { return __Y; }
+            set { __Y = value; WriteUInt16(18, value); }
+        }
+
+        /// <summary>
+        /// Direction of the entity.
+        /// </summary>
+        public Byte Direction
+        {
+            get { return (Byte)__Direction; }
+            set { __Direction = value; WriteUInt16(20, value); }
+        }
+
+        /// <summary>
+        /// Action ID.
+        /// </summary>
+        public Action _Action
+        {
+            get { return __Action; }
+            set { __Action = value; WriteUInt16(22, (UInt16)value); }
+        }
+
+        /// <summary>
+        /// Create a message object from the specified buffer.
+        /// </summary>
+        /// <param name="aBuf">The buffer containing the message.</param>
+        /// <param name="aIndex">The index where the message is starting in the buffer.</param>
+        /// <param name="aLength">The length of the message.</param>
+        internal MsgAction(Byte[] aBuf, int aIndex, int aLength)
+            : base(aBuf, aIndex, aLength)
+        {
+            __Timestamp = BitConverter.ToInt32(mBuf, 4);
+            __UniqId = BitConverter.ToInt32(mBuf, 8);
+            __Data = BitConverter.ToInt32(mBuf, 12);
+            __X = BitConverter.ToUInt16(mBuf, 16);
+            __Y = BitConverter.ToUInt16(mBuf, 18);
+            __Direction = BitConverter.ToUInt16(mBuf, 20);
+            __Action = (Action)BitConverter.ToUInt16(mBuf, 22);
+        }
+
+        public MsgAction(Entity aEntity, Int32 aData, Action aAction)
+            : base(24)
+        {
+            Timestamp = Environment.TickCount;
+            UniqId = aEntity.UniqId;
+            Data = aData;
+            X = aEntity.X;
+            Y = aEntity.Y;
+            Direction = aEntity.Direction;
+            _Action = aAction;
+        }
+
+        public MsgAction(Entity aEntity, UInt32 aData, Action aAction)
+            : base(24)
+        {
+            Timestamp = Environment.TickCount;
+            UniqId = aEntity.UniqId;
+            Data = (Int32)aData;
+            X = aEntity.X;
+            Y = aEntity.Y;
+            Direction = aEntity.Direction;
+            _Action = aAction;
+        }
+
+        /// <summary>
+        /// Process the message for the specified client.
+        /// </summary>
+        /// <param name="aClient">The client who sent the message.</param>
+        public override void Process(Client aClient)
         {
             try
             {
-                if (Client == null || Buffer == null || Client.User == null)
-                    return;
+                Player player = aClient.Player;
 
-                if (Buffer.Length != sizeof(MsgInfo))
-                    return;
-
-                fixed (Byte* pBuf = Buffer)
+                switch (_Action)
                 {
-                    MsgInfo* pMsg = (MsgInfo*)pBuf;
+                    case Action.GetPosition:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
 
-                    switch ((Action)pMsg->Action)
-                    {
-                        case Action.GetPosition:
+                            player.Send(new MsgAction(player, player.Map.DocId, Action.GetPosition));
+                            player.Send(new MsgAction(player, (Int32)player.Map.Light, Action.MapARGB));
+                            player.Send(new MsgMapInfo(player.Map));
+                            if (player.Map.Weather != 0)
+                                player.Send(new MsgWeather(player.Map));
+                            break;
+                        }
+                    case Action.GetItemSet:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            foreach (Item Item in World.AllItems.Values)
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                if (!World.AllMaps.ContainsKey(Player.Map))
-                                    return;
-
-                                Player.Send(MsgAction.Create(Player, World.AllMaps[Player.Map].Id, Action.GetPosition));
-                                Player.Send(MsgAction.Create(Player, (Int32)World.AllMaps[Player.Map].Color, Action.MapARGB));
-                                Player.Send(MsgMapInfo.Create(World.AllMaps[Player.Map]));
-                                if (World.AllMaps[Player.Map].Weather != 0)
-                                    Player.Send(MsgWeather.Create(World.AllMaps[Player.Map]));
-                                break;
-                            }
-                        case Action.GetItemSet:
-                            {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                foreach (Item Item in World.AllItems.Values)
+                                if (Item.OwnerUID == player.UniqId)
                                 {
-                                    if (Item.OwnerUID == Player.UniqId)
+                                    player.Items.Add(Item.Id, Item);
+                                    if (Item.Position < 10)
                                     {
-                                        Player.Items.Add(Item.UniqId, Item);
-                                        if (Item.Position < 10)
-                                        {
-                                            Player.Send(MsgItemInfo.Create(Item, MsgItemInfo.Action.AddItem));
-                                            World.BroadcastRoomMsg(Player, MsgItemInfoEx.Create(pMsg->UniqId, Item, 0, MsgItemInfoEx.Action.Equipment), false);
-                                        }
+                                        player.Send(new MsgItemInfo(Item, MsgItemInfo.Action.AddItem));
+                                        World.BroadcastRoomMsg(player, new MsgItemInfoEx(UniqId, Item, 0, MsgItemInfoEx.Action.Equipment), false);
                                     }
                                 }
-                                MyMath.GetHitPoints(Player, true);
-                                MyMath.GetMagicPoints(Player, true);
-                                MyMath.GetPotency(Player, true);
-                                MyMath.GetEquipStats(Player);
-                                Player.SendEquipStats();
-
-                                Player.Send(Buffer);
-                                break;
                             }
-                        case Action.GetGoodFriend:
-                            {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
+                            player.CalcMaxHP();
+                            player.CalcMaxMP();
+                            MyMath.GetEquipStats(player);
 
-                                foreach (KeyValuePair<Int32, String> KV in Player.Friends)
+                            player.Send(this);
+                            break;
+                        }
+                    case Action.GetGoodFriend:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            foreach (KeyValuePair<Int32, String> KV in player.Friends)
+                            {
+                                var onlineFlag = World.AllPlayers.ContainsKey(KV.Key) ? MsgFriend.Status.Online : MsgFriend.Status.Offline;
+                                player.Send(new MsgFriend(KV.Key, KV.Value, onlineFlag, MsgFriend.Action.GetInfo));
+
+                                Player friend = null;
+                                if (!World.AllPlayers.TryGetValue(KV.Key, out friend))
+                                    continue;
+
+                                friend.Send(new MsgFriend(player.UniqId, player.Name, MsgFriend.Status.Online, MsgFriend.Action.FriendOnline));
+                            }
+
+                            foreach (KeyValuePair<Int32, String> KV in player.Enemies)
+                            {
+                                var onlineFlag = World.AllPlayers.ContainsKey(KV.Key) ? MsgFriend.Status.Online : MsgFriend.Status.Offline;
+                                player.Send(new MsgFriend(KV.Key, KV.Value, onlineFlag, MsgFriend.Action.EnemyAdd));
+                            }
+
+                            foreach (Player enemy in World.AllPlayers.Values)
+                            {
+                                if (!enemy.Enemies.ContainsKey(player.UniqId))
+                                    continue;
+
+                                enemy.Send(new MsgFriend(player.UniqId, player.Name, MsgFriend.Status.Online, MsgFriend.Action.EnemyOnline));
+                            }
+
+                            player.Send(this);
+                            break;
+                        }
+                    case Action.GetWeaponSkillSet:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            player.SendWeaponSkillSet();
+                            player.Send(this);
+                            break;
+                        }
+                    case Action.GetMagicSet:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            player.SendMagicSkillSet();
+                            player.Send(this);
+                            break;
+                        }
+                    case Action.ChgDir:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            player.Direction = Direction;
+                            World.BroadcastRoomMsg(player, this, false);
+                            break;
+                        }
+                    case Action.Emotion:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            player.IsInBattle = false;
+                            player.MagicIntone = false;
+                            player.Mining = false;
+
+                            player.Action = (Emotion)Data;
+                            if (Emotion.Cool == player.Action)
+                            {
+                                if (Environment.TickCount - player.LastCoolShow > 3000)
                                 {
-                                    Player.Send(MsgFriend.Create(KV.Key, KV.Value, World.AllPlayers.ContainsKey(KV.Key), MsgFriend.Action.GetInfo));
+                                    if (player.IsAllNonsuchEquip())
+                                        Data |= (player.Profession * 0x00010000 + 0x01000000);
+                                    else if ((player.GetArmorTypeID() % 10) == 9)
+                                        Data |= player.Profession * 0x010000;
 
-                                    Player Friend = null;
-                                    if (!World.AllPlayers.TryGetValue(KV.Key, out Friend))
-                                        continue;
-
-                                    Friend.Send(MsgFriend.Create(Player.UniqId, Player.Name, true, MsgFriend.Action.FriendOnline));
+                                    player.LastCoolShow = Environment.TickCount;
                                 }
-
-                                foreach (KeyValuePair<Int32, String> KV in Player.Enemies)
-                                    Player.Send(MsgFriend.Create(KV.Key, KV.Value, World.AllPlayers.ContainsKey(KV.Key), MsgFriend.Action.EnemyAdd));
-
-                                foreach (Player Enemy in World.AllPlayers.Values)
-                                {
-                                    if (!Enemy.Enemies.ContainsKey(Player.UniqId))
-                                        continue;
-
-                                    Enemy.Send(MsgFriend.Create(Player.UniqId, Player.Name, true, MsgFriend.Action.EnemyOnline));
-                                }
-
-                                Player.Send(Buffer);
-                                break;
                             }
-                        case Action.GetWeaponSkillSet:
+                            World.BroadcastRoomMsg(player, this, true);
+                            break;
+                        }
+                    case Action.ChgMap:
+                        {
+                            UInt16 passageX = (UInt16)(Data);
+                            UInt16 passageY = (UInt16)(Data >> 16);
+
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            // if requested with a big range, it's a hack, else we consider that it's a lag...
+                            if (!MyMath.CanSee(player.X, player.Y, passageX, passageY, 10))
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                foreach (WeaponSkill WeaponSkill in World.AllWeaponSkills.Values)
-                                {
-                                    if (WeaponSkill.OwnerUID == Player.UniqId)
-                                    {
-                                        Player.WeaponSkills.Add(WeaponSkill.UniqId, WeaponSkill);
-                                        if (!WeaponSkill.Unlearn)
-                                            Player.Send(MsgWeaponSkill.Create(WeaponSkill));
-                                    }
-                                }
-
-                                Player.Send(Buffer);
-                                break;
+                                if (Database.SendPlayerToJail(player.Name))
+                                    Program.Log("[CRIME] {0} has been sent to jail for using a portal hack !", player.Name);
+                                return;
                             }
-                        case Action.GetMagicSet:
+
+                            int passageId = player.Map.GetPassage(passageX, passageY);
+
+                            try
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                foreach (Magic Magic in World.AllMagics.Values)
-                                {
-                                    if (Magic.OwnerUID == Player.UniqId)
-                                    {
-                                        Player.Magics.Add(Magic.UniqId, Magic);
-                                        if (!Magic.Unlearn)
-                                            Player.Send(MsgMagicInfo.Create(Magic));
-                                    }
-                                }
-
-                                Player.Send(Buffer);
-                                Player.CheckWeaponSkills();
-                                break;
+                                PasswayInfo passway = Database.AllPassways.Find(p => p.MapId == player.Map.Id && p.Idx == passageId);
+                                player.Move(passway.PortalMap, passway.PortalX, passway.PortalY);
                             }
-                        case Action.ChgDir:
+                            catch (InvalidOperationException)
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                Player.Direction = (Byte)pMsg->Direction;
-                                World.BroadcastRoomMsg(Player, Buffer, false);
-                                break;
+                                sLogger.Warn("Failed to find the passway {0} of the map {1}.", passageId, player.Map.Id);
+                                player.Move(player.Map.Id, player.PrevX, player.PrevY);
                             }
-                        case Action.Emotion:
+
+                            break;
+                        }
+                    case Action.XpClear:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            player.XP = 0;
+                            player.DetachStatus(Status.XpFull);
+                            player.LastXPAdd = Environment.TickCount;
+                            break;
+                        }
+                    case Action.Reborn:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            if (player.IsAlive())
+                                return;
+
+                            //If requested before 17s, it's a hack, else we consider that it's a lag...
+                            //It should be 20s in reality.
+                            if (Environment.TickCount - player.LastDieTick < 17000)
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                Player.IsInBattle = false;
-                                Player.MagicIntone = false;
-                                Player.Mining = false;
-
-                                Player.Action = (Int16)pMsg->Param;
-                                if (Emotion.Cool == (Emotion)pMsg->Param)
-                                {
-                                    if (Environment.TickCount - Player.LastCoolShow > 3000)
-                                    {
-                                        if (Player.IsAllNonsuchEquip())
-                                            pMsg->Param |= (Player.Profession * 0x00010000 + 0x01000000);
-                                        else if ((Player.GetArmorTypeID() % 10) == 9)
-                                            pMsg->Param |= Player.Profession * 0x010000;
-
-                                        Player.LastCoolShow = Environment.TickCount;
-                                    }
-                                }
-                                World.BroadcastRoomMsg(Player, Buffer, true);
-                                break;
+                                if (Database.SendPlayerToJail(player.Name))
+                                    Program.Log("[CRIME] {0} has been sent to jail for using a revive hack!", player.Name);
+                                return;
                             }
-                        case Action.ChgMap:
+
+                            player.Reborn(true);
+                            break;
+                        }
+                    case Action.DelRole:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            if (Data != player.mLockPin)
+                                return;
+
+                            Database.Delete(player);
+                            break;
+                        }
+                    case Action.SetPkMode:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            String Msg = "";
+                            switch ((PkMode)Data)
                             {
-                                UInt16 PortalX = (UInt16)(pMsg->Param);
-                                UInt16 PortalY = (UInt16)(pMsg->Param >> 16);
+                                case PkMode.Free:
+                                    Msg = StrRes.STR_FREE_PK_MODE;
+                                    break;
 
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
+                                case PkMode.Safe:
+                                    Msg = StrRes.STR_SAFE_PK_MODE;
+                                    break;
 
-                                //If requested with a big range, it's a hack, else we consider that it's a lag...
-                                if (!MyMath.CanSee(Player.X, Player.Y, PortalX, PortalY, 10))
-                                {
-                                    Database.Jail(Player.Name);
+                                case PkMode.Team:
+                                    Msg = StrRes.STR_TEAM_PK_MODE;
+                                    break;
 
-                                    Player.JailC++;
-                                    Player.Move(6001, 28, 75);
-
-                                    Program.Log("[CRIME] " + Player.Name + " has been sent to jail for using a portal hack!");
-                                    World.BroadcastMsg(MsgTalk.Create("SYSTEM", "ALLUSERS", Player.Name + " has been sent to jail!", MsgTalk.Channel.GM, 0xFFFFFF));
-                                    return;
-                                }
-
-                                if (!MyMath.CanSee(Player.X, Player.Y, PortalX, PortalY, 2))
-                                {
-                                    Player.Move(Player.Map, Player.PrevX, Player.PrevY);
-                                    return;
-                                }
-
-                                foreach (PortalInfo Info in Database.AllPortals)
-                                {
-                                    if (Info.FromMap != Player.Map)
-                                        continue;
-
-                                    if (Info.FromX != PortalX || Info.FromY != PortalY)
-                                        continue;
-
-                                    Player.Move(Info.ToMap, Info.ToX, Info.ToY);
-                                    return;
-                                }
-                                Player.Move(Player.Map, Player.PrevX, Player.PrevY);
-                                break;
+                                case PkMode.Arrestment:
+                                    Msg = StrRes.STR_ARRESTMENT_PK_MODE;
+                                    break;
                             }
-                        case Action.XpClear:
+
+                            player.PkMode = (PkMode)Data;
+                            player.IsInBattle = false;
+
+                            player.Send(this);
+                            player.SendSysMsg(Msg);
+                            break;
+                        }
+                    case Action.GetSynAttr:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            Syndicate Syndicate = player.Syndicate;
+                            player.Send(new MsgSynAttrInfo(UniqId, Syndicate));
+
+                            if (Syndicate != null)
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
+                                foreach (Int32 enemyId in Syndicate.Enemies)
+                                    player.Send(new MsgSyndicate((UInt32)enemyId, MsgSyndicate.Action.SetAntagonize));
 
-                                Player.XP = 0;
-                                Player.DelFlag(Player.Flag.XPList);
-                                Player.Send(MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags));
-                                Player.LastXPAdd = Environment.TickCount;
-                                break;
+                                foreach (Int32 allyId in Syndicate.Allies)
+                                    player.Send(new MsgSyndicate((UInt32)allyId, MsgSyndicate.Action.SetAlly));
+
+
+                                //OBJID idSyn = this->GetID();
+                                //CMsgSyndicate	msg;
+                                //IF_OK(msg.Create(SET_SYN, idSyn, this->GetInt(SYNDATA_FEALTY)))
+                                //    pUser->SendMsg(&msg);
+
+                                //IF_OK(msg.Create(SYN_SET_PUBLISHTIME, idSyn, this->GetInt(SYNDATA_PUBLISHTIME)))
+                                //    pUser->SendMsg(&msg);
+
+                                //// ×Ó°ïÅÉ
+                                //for( i = 0; i < SynManager()->QuerySynSet()->GetAmount(); i++)  
+                                //{
+                                //    CSyndicate* pSyn = SynManager()->QuerySynSet()->GetObjByIndex(i);
+                                //    if(pSyn && pSyn->GetInt(SYNDATA_FEALTY) == idSyn)
+                                //    {
+                                //        pSyn->SendInfoToClient(pUser);
+                                //    }
+                                //}
                             }
-                        case Action.Reborn:
+
+                            player.Send(this);
+                            break;
+                        }
+                    case Action.Mine:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            if (!player.IsAlive())
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                if (Player.IsAlive())
-                                    return;
-
-                                //If requested before 17s, it's a hack, else we consider that it's a lag...
-                                //It should be 20s in reality.
-                                if (Environment.TickCount - Player.LastDieTick < 17000)
-                                {
-                                    Database.Jail(Player.Name);
-
-                                    Player.JailC++;
-                                    Player.Move(6001, 28, 75);
-
-                                    Program.Log("[CRIME] " + Player.Name + " has been sent to jail for using a revive hack!");
-                                    World.BroadcastMsg(MsgTalk.Create("SYSTEM", "ALLUSERS", Player.Name + " has been sent to jail!", MsgTalk.Channel.GM, 0xFFFFFF));
-                                    return;
-                                }
-
-                                if (pMsg->Param == 1)
-                                {
-                                    Map Map = null;
-                                    if (!World.AllMaps.TryGetValue(Player.Map, out Map))
-                                        return;
-
-                                    if (!Map.IsRebornNow_Enable())
-                                        return;
-                                }
-
-                                Player.Reborn(pMsg->Param != 1);
-                                break;
+                                player.SendSysMsg(StrRes.STR_DIE);
+                                return;
                             }
-                        case Action.DelRole:
+
+                            if (!player.Map.IsMineField())
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                if (pMsg->Param != Player.WHPIN)
-                                    return;
-
-                                Database.Delete(Player);
-                                break;
+                                player.SendSysMsg(StrRes.STR_NO_MINE);
+                                return;
                             }
-                        case Action.SetPkMode:
+
+                            player.Mine();
+                            break;
+                        }
+                    case Action.BotCheckA:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            if (Data != Timestamp)
+                                aClient.Disconnect();
+                            break;
+                        }
+                    case Action.QueryPlayer:
+                        {
+                            if (player.UniqId != Data)
+                                return;
+
+                            Player Target = null;
+                            if (World.AllPlayers.TryGetValue(UniqId, out Target))
+                                player.Send(new MsgPlayer(Target));
+                            break;
+                        }
+                    case Action.TeamMemberPos:
+                        {
+                            if (UniqId != Data)
+                                return;
+
+                            if (player.Team == null)
+                                return;
+
+                            if (!player.Team.IsTeamMember(UniqId))
+                                return;
+
+                            Player Target = null;
+                            if (World.AllPlayers.TryGetValue(UniqId, out Target))
+                                player.Send(new MsgAction(Target, (Int32)Target.Map.Id, Action.TeamMemberPos));
+                            break;
+                        }
+                    case Action.CreateBooth:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            player.Direction = Direction;
+
+                            Booth Booth = Booth.Create(player, X, Y);
+                            Booth.SendShow(player);
+
+                            player.Send(new MsgAction(player, Booth.UniqId, Action.CreateBooth));
+                            break;
+                        }
+                    case Action.DestroyBooth:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            if (player.Booth != null)
+                                player.Booth.Destroy();
+
+                            player.Map.AddEntity(player);
+                            player.Screen.ChangeMap();
+                            break;
+                        }
+                    case Action.TakeOff:
+                        {
+                            player.DetachStatus(Status.Flying);
+                            break;
+                        }
+                    case Action.QueryEquipment:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            Player Target = null;
+                            if (!World.AllPlayers.TryGetValue(Data, out Target))
+                                return;
+
+                            Target.SendSysMsg("TODO STR " + player.Name + " is looking at your gear...");
+
+                            Item Item = null;
+                            for (Byte i = 1; i < 10; i++)
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                String Msg = "";
-                                switch ((PkMode)pMsg->Param)
-                                {
-                                    case PkMode.Free:
-                                        Msg = Client.GetStr("STR_FREE_PK_MODE");
-                                        break;
-
-                                    case PkMode.Safe:
-                                        Msg = Client.GetStr("STR_SAFE_PK_MODE");
-                                        break;
-
-                                    case PkMode.Team:
-                                        Msg = Client.GetStr("STR_TEAM_PK_MODE");
-                                        break;
-
-                                    case PkMode.Arrestment:
-                                        Msg = Client.GetStr("STR_ARRESTMENT_PK_MODE");
-                                        break;
-                                }
-
-                                Player.PkMode = (Byte)pMsg->Param;
-                                Player.IsInBattle = false;
-
-                                Player.Send(Buffer);
-                                Player.SendSysMsg(Msg);
-                                break;
+                                Item = Target.GetItemByPos(i);
+                                if (Item != null)
+                                    player.Send(new MsgItemInfo(Target.UniqId, Item, MsgItemInfo.Action.OtherPlayer_Equipement));
                             }
-                        case Action.GetSynAttr:
+                            break;
+                        }
+                    case Action.AbortTransform:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            player.TransformEndTime = Environment.TickCount - 2000;
+                            break;
+                        }
+                    case Action.QueryEnemyInfo:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            if (!player.Enemies.ContainsKey(Data))
+                                return;
+
+                            Player enemy = null;
+                            if (!World.AllPlayers.TryGetValue(Data, out enemy))
+                                return;
+
+                            player.Send(new MsgFriendInfo(enemy));
+                            break;
+                        }
+                    case Action.LoginCompleted:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            break;
+                        }
+                    case Action.Jump:
+                        {
+                            UInt16 NewX = (UInt16)(Data);
+                            UInt16 NewY = (UInt16)(Data >> 16);
+
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            if (player.X != X || player.Y != Y)
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                Syndicate.Info Syndicate = Player.Syndicate;
-                                Player.Send(MsgSynAttrInfo.Create(pMsg->UniqId, Syndicate));
-
-                                if (Syndicate != null)
-                                {
-                                    foreach (Int32 Enemy in Syndicate.Enemies)
-                                        Player.Send(MsgSyndicate.Create(Enemy, MsgSyndicate.Action.SetAntagonize));
-
-                                    foreach (Int32 Ally in Syndicate.Allies)
-                                        Player.Send(MsgSyndicate.Create(Ally, MsgSyndicate.Action.SetAlly));
-
-
-                                    //OBJID idSyn = this->GetID();
-                                    //CMsgSyndicate	msg;
-                                    //IF_OK(msg.Create(SET_SYN, idSyn, this->GetInt(SYNDATA_FEALTY)))
-                                    //    pUser->SendMsg(&msg);
-
-                                    //IF_OK(msg.Create(SYN_SET_PUBLISHTIME, idSyn, this->GetInt(SYNDATA_PUBLISHTIME)))
-                                    //    pUser->SendMsg(&msg);
-
-                                    //// ×Ó°ïÅÉ
-                                    //for( i = 0; i < SynManager()->QuerySynSet()->GetAmount(); i++)  
-                                    //{
-                                    //    CSyndicate* pSyn = SynManager()->QuerySynSet()->GetObjByIndex(i);
-                                    //    if(pSyn && pSyn->GetInt(SYNDATA_FEALTY) == idSyn)
-                                    //    {
-                                    //        pSyn->SendInfoToClient(pUser);
-                                    //    }
-                                    //}
-                                }
-
-                                Player.Send(Buffer);
-                                break;
+                                player.KickBack();
+                                return;
                             }
-                        case Action.Mine:
+
+                            if (!player.IsAlive())
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                if (!Player.IsAlive())
-                                {
-                                    Player.SendSysMsg(Client.GetStr("STR_DIE"));
-                                    return;
-                                }
-
-                                Map Map;
-                                if (!World.AllMaps.TryGetValue(Player.Map, out Map))
-                                    return;
-
-                                if (!Map.IsMineField())
-                                {
-                                    Player.SendSysMsg(Client.GetStr("STR_NO_MINE"));
-                                    return;
-                                }
-
-                                Player.Mine();
-                                break;
+                                player.SendSysMsg(StrRes.STR_DIE);
+                                player.KickBack();
+                                return;
                             }
-                        case Action.BotCheckA:
+
+                            if (!MyMath.CanSee(X, Y, NewX, NewY, 17))
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                if (pMsg->Param != pMsg->Timestamp)
-                                    Client.Disconnect();
-                                break;
+                                player.KickBack();
+                                return;
                             }
-                        case Action.QueryPlayer:
+
+                            if (!player.Map.GetFloorAccess(NewX, NewY))
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->Param)
-                                    return;
-
-                                Player Target = null;
-                                if (World.AllPlayers.TryGetValue(pMsg->UniqId, out Target))
-                                    Player.Send(MsgPlayer.Create(Target));
-                                break;
+                                player.SendSysMsg(StrRes.STR_INVALID_COORDINATE);
+                                player.KickBack();
+                                return;
                             }
-                        case Action.TeamMemberPos:
+
+                            //The maximum elevation difference (between the character's initial position and the check tile's position) is 210
+                            int newAlt = player.Map.GetFloorAlt(NewX, NewY), prevAlt = player.Map.GetFloorAlt(player.X, player.Y);
+                            if (newAlt - prevAlt > 210 && newAlt - prevAlt < 1000)  // otherwise, a bug in the DMap
                             {
-                                Player Player = Client.User;
-                                if (pMsg->UniqId != pMsg->Param)
-                                    return;
-
-                                if (Player.Team == null)
-                                    return;
-
-                                if (!Player.Team.IsTeamMember(pMsg->UniqId))
-                                    return;
-
-                                Player Target = null;
-                                if (World.AllPlayers.TryGetValue(pMsg->UniqId, out Target))
-                                    Player.Send(MsgAction.Create(Target, Target.Map, Action.TeamMemberPos));
-                                break;
+                                if (Database.SendPlayerToJail(player.Name))
+                                    Program.Log("[CRIME] {0} has been sent to jail for using a wall jump hack!", player.Name);
+                                return;
                             }
-                        case Action.CreateBooth:
+
+                            //Normal: 800, Cyclone: 400, Fly: 520, Fly + Cyclone: 275, DH: 250
+                            //So, the tick shouldn't be lower than ~410 if the user doesn't use Cyclone or DH...
+                            if (!player.HasStatus(Status.SuperSpeed) && player.TransformEndTime == 0
+                                && Environment.TickCount - player.LastJumpTick < 410)
+                                player.SpeedHack++;
+                            player.LastJumpTick = Environment.TickCount;
+
+                            // TODO re-enable PrevX/Y in jump ?
+                            //player.PrevX = player.X;
+                            //player.PrevY = player.Y;
+
+                            Byte direction = (Byte)MyMath.GetDirectionCO(player.X, player.Y, NewX, NewY);
+
+                            player.X = NewX;
+                            player.Y = NewY;
+                            player.Direction = direction;
+                            player.Action = Emotion.StandBy;
+
+                            player.IsInBattle = false;
+                            player.MagicIntone = false;
+                            player.Mining = false;
+
+                            player.Send(this);
+                            player.Screen.Move(this);
+                            break;
+                        }
+                    case Action.Ghost:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            if (!player.IsAlive())
+                                player.TransformGhost();
+                            break;
+                        }
+                    case Action.Synchro:
+                        {
+                            UInt16 ClientX = (UInt16)(Data >> 16);
+                            UInt16 ClientY = (UInt16)(Data);
+
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            player.X = ClientX;
+                            player.Y = ClientY;
+
+                            player.Send(new MsgAction(player, Data, Action.Jump));
+                            World.BroadcastRoomMsg(player, this, false);
+                            break;
+                        }
+                    case Action.QueryFriendInfo:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            if (!player.Friends.ContainsKey(Data))
+                                return;
+
+                            Player friend = null;
+                            if (!World.AllPlayers.TryGetValue(Data, out friend))
+                                return;
+
+                            player.Send(new MsgFriendInfo(friend));
+                            break;
+                        }
+                    case Action.ChangeFace:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            if (player.Money < 500)
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                Player.Direction = (Byte)pMsg->Direction;
-
-                                Booth Booth = Booth.Create(Player, pMsg->X, pMsg->Y);
-                                Booth.SendShow(Player);
-
-                                Player.Send(MsgAction.Create(Player, Booth.UniqId, Action.CreateBooth));
-                                break;
+                                player.SendSysMsg(StrRes.STR_NOT_SO_MUCH_MONEY);
+                                return;
                             }
-                        case Action.DestroyBooth:
+                            player.Money -= 500;
+                            player.Send(new MsgUserAttrib(player, player.Money, MsgUserAttrib.AttributeType.Money));
+                            player.Look = (UInt32)(player.Look - ((Int32)(player.Look / 10000) * 10000) + (Data * 10000));
+
+                            if (player.Team != null)
+                                player.Team.BroadcastMsg(this);
+                            break;
+                        }
+                    case (Action)310:
+                        {
+                            if (player.UniqId != UniqId)
+                                return;
+
+                            Player Target = null;
+                            if (!World.AllPlayers.TryGetValue(Data, out Target))
+                                return;
+
+                            Target.SendSysMsg("TODO STR " + player.Name + " is looking at your gear...");
+
+                            Item Item = null;
+                            for (Byte i = 1; i < 10; i++)
                             {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                if (Player.Booth != null)
-                                    Player.Booth.Destroy();
-
-                                World.AllMaps[Player.Map].AddEntity(Player);
-                                Player.Screen.ChangeMap();
-                                break;
+                                Item = Target.GetItemByPos(i);
+                                if (Item != null)
+                                    player.Send(new MsgItemInfo(Target.UniqId, Item, MsgItemInfo.Action.OtherPlayer_Equipement));
                             }
-                        case Action.TakeOff:
-                            {
-                                Player Player = Client.User;
-                                Player.FlyEndTime = Environment.TickCount - 5000;
-                                break;
-                            }
-                        case Action.QueryEquipment:
-                            {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
 
-                                Player Target = null;
-                                if (!World.AllPlayers.TryGetValue(pMsg->Param, out Target))
-                                    return;
-
-                                Item Item = null;
-
-                                for (Byte i = 1; i < 10; i++)
-                                {
-                                    Item = Target.GetItemByPos(i);
-                                    if (Item != null)
-                                        Player.Send(MsgItemInfo.Create(Target.UniqId, Item, MsgItemInfo.Action.OtherPlayer_Equipement));
-                                }
-                                break;
-                            }
-                        case Action.AbortTransform:
-                            {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                Player.TransformEndTime = Environment.TickCount - 2000;
-                                break;
-                            }
-                        case Action.QueryEnemyInfo:
-                            {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                if (!Player.Enemies.ContainsKey(pMsg->Param))
-                                    return;
-
-                                Player Enemy = null;
-                                if (!World.AllPlayers.TryGetValue(pMsg->Param, out Enemy))
-                                    return;
-
-                                Player.Send(MsgFriendInfo.Create(Enemy));
-                                break;
-                            }
-                        case Action.LoginCompleted:
-                            {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                break;
-                            }
-                        case Action.Jump:
-                            {
-                                UInt16 NewX = (UInt16)(pMsg->Param);
-                                UInt16 NewY = (UInt16)(pMsg->Param >> 16);
-
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                if (Player.X != pMsg->X || Player.Y != pMsg->Y)
-                                {
-                                    Player.KickBack();
-                                    return;
-                                }
-
-                                if (!Player.IsAlive())
-                                {
-                                    Player.SendSysMsg(Client.GetStr("STR_DIE"));
-                                    Player.KickBack();
-                                    return;
-                                }
-
-                                if (!MyMath.CanSee(pMsg->X, pMsg->Y, NewX, NewY, 17))
-                                {
-                                    Player.KickBack();
-                                    return;
-                                }
-
-                                Map Map = null;
-                                if (World.AllMaps.TryGetValue(Player.Map, out Map))
-                                {
-                                    if (!Map.IsValidPoint(NewX, NewY))
-                                    {
-                                        Player.SendSysMsg(Client.GetStr("STR_INVALID_COORDINATE"));
-                                        Player.KickBack();
-                                        return;
-                                    }
-
-                                    //The maximum elevation difference (between the character's initial position and the check tile's position) is 210
-                                    if ((Int32)Map.GetHeight(NewX, NewY) - (Int32)Map.GetHeight(Player.X, Player.Y) > 210)
-                                    {
-                                        Database.Jail(Player.Name);
-
-                                        Player.JailC++;
-                                        Player.Move(6001, 28, 75);
-
-                                        Program.Log("[CRIME] " + Player.Name + " has been sent to jail for using a wall jump hack!");
-                                        World.BroadcastMsg(MsgTalk.Create("SYSTEM", "ALLUSERS", Player.Name + " has been sent to jail!", MsgTalk.Channel.GM, 0xFFFFFF));
-                                        return;
-                                    }
-                                }
-
-                                //Normal: 800, Cyclone: 400, Fly: 520, Fly + Cyclone: 275, DH: 250
-                                //So, the tick shouldn't be lower than ~410 if the user doesn't use Cyclone or DH...
-                                if (!Player.ContainsFlag(Player.Flag.Cyclone) && Player.TransformEndTime == 0
-                                    && Environment.TickCount - Player.LastJumpTick < 410)
-                                    Player.SpeedHack++;
-                                Player.LastJumpTick = Environment.TickCount;
-
-                                Player.PrevX = Player.X;
-                                Player.PrevY = Player.Y;
-
-                                Player.X = NewX;
-                                Player.Y = NewY;
-                                Player.Direction = (Byte)MyMath.GetDirectionCO(Player.PrevX, Player.PrevY, NewX, NewY);
-                                Player.Action = (Int16)MsgAction.Emotion.StandBy;
-
-                                Player.IsInBattle = false;
-                                Player.MagicIntone = false;
-                                Player.Mining = false;
-
-                                Player.Send(Buffer);
-                                Player.Screen.Move(Buffer);
-                                break;
-                            }
-                        case Action.Ghost:
-                            {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                if (!Player.IsAlive())
-                                {
-                                    if (Player.Look / 10000000 != 98 && Player.Look / 10000000 != 99)
-                                    {
-                                        if (Player.Look % 10000 == 2001 || Player.Look % 10000 == 2002)
-                                            Player.AddTransform(99);
-                                        else
-                                            Player.AddTransform(98);
-                                        World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Look, MsgUserAttrib.Type.Look), true);
-                                    }
-                                }
-                                break;
-                            }
-                        case Action.Synchro:
-                            {
-                                UInt16 ClientX = (UInt16)(pMsg->Param >> 16);
-                                UInt16 ClientY = (UInt16)(pMsg->Param);
-
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                Player.X = ClientX;
-                                Player.Y = ClientY;
-
-                                Player.Send(MsgAction.Create(Player, pMsg->Param, Action.Jump));
-                                World.BroadcastRoomMsg(Player, Buffer, false);
-                                break;
-                            }
-                        case Action.QueryFriendInfo:
-                            {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                if (!Player.Friends.ContainsKey(pMsg->Param))
-                                    return;
-
-                                Player Friend = null;
-                                if (!World.AllPlayers.TryGetValue(pMsg->Param, out Friend))
-                                    return;
-
-                                Player.Send(MsgFriendInfo.Create(Friend));
-                                break;
-                            }
-                        case Action.ChangeFace:
-                            {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                if (Player.Money < 500)
-                                {
-                                    Player.SendSysMsg(Client.GetStr("STR_NOT_SO_MUCH_MONEY"));
-                                    return;
-                                }
-                                Player.Money -= 500;
-                                Player.Send(MsgUserAttrib.Create(Player, Player.Money, MsgUserAttrib.Type.Money));
-                                Player.Look = (UInt32)(Player.Look - ((Int32)(Player.Look / 10000) * 10000) + (pMsg->Param * 10000));
-
-                                World.BroadcastRoomMsg(Player, Buffer, true);
-
-                                if (Player.Team != null)
-                                    World.BroadcastTeamMsg(Player.Team, Buffer);
-                                break;
-                            }
-                        case (Action)310:
-                            {
-                                Player Player = Client.User;
-                                if (Player.UniqId != pMsg->UniqId)
-                                    return;
-
-                                Player Target = null;
-                                if (!World.AllPlayers.TryGetValue(pMsg->Param, out Target))
-                                    return;
-
-                                //Player.Send(MsgPlayer.Create(Target));
-
-                                Item Item = null;
-                                for (Byte i = 1; i < 10; i++)
-                                {
-                                    Item = Target.GetItemByPos(i);
-                                    if (Item != null)
-                                        Player.Send(MsgItemInfoEx.Create(Target.UniqId, Item, 0, MsgItemInfoEx.Action.OtherPlayer_Equipement));
-                                }
-
-                                break;
-                            }
-                        default:
-                            {
-                                Console.WriteLine("Msg[{0}], Action[{1}] not implemented yet!", pMsg->Header.Type, (Int16)pMsg->Action);
-                                break;
-                            }
-                    }
+                            break;
+                        }
+                    default:
+                        {
+                            sLogger.Error("Action {0} is not implemented for MsgAction.", (UInt16)_Action);
+                            break;
+                        }
                 }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
+            catch (Exception exc) { sLogger.Error(exc); }
         }
     }
 }

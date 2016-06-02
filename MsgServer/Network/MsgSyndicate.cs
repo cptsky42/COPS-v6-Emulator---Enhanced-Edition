@@ -1,17 +1,26 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2011 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.Collections.Generic;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using COServer.Entities;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgSyndicate : Msg
+    public class MsgSyndicate : Msg
     {
-        public const Int16 Id = _MSG_SYNDICATE;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_SYNDICATE; } }
 
         public enum Action
         {
@@ -56,162 +65,166 @@ namespace COServer.Network
             //SYN_SET_PUBLISHTIME = 119,		//ÉèÖÃ¹«¸æÊ±¼ä
         };
 
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        public struct MsgInfo
+        //--------------- Internal Members ---------------
+        private Action __Action = (Action)0;
+        private UInt32 __Data = 0;
+        //------------------------------------------------
+
+        public Action _Action
         {
-            public MsgHeader Header;
-            public Int32 Action;
-            public Int32 Param;
-        };
-
-        public static Byte[] Create(Int32 Param, Action Action)
-        {
-            try
-            {
-                MsgInfo* pMsg = stackalloc MsgInfo[1];
-                pMsg->Header.Length = (Int16)sizeof(MsgInfo);
-                pMsg->Header.Type = Id;
-
-                pMsg->Action = (Int32)Action;
-                pMsg->Param = Param;
-
-                Byte[] Out = new Byte[pMsg->Header.Length];
-                Marshal.Copy((IntPtr)pMsg, Out, 0, Out.Length);
-
-                return Out;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+            get { return __Action; }
+            set { __Action = value; WriteUInt32(4, (UInt32)value); }
         }
 
-        public static void Process(Client Client, Byte[] Buffer)
+        public UInt32 Data
         {
-            try
+            get { return __Data; }
+            set { __Data = value; WriteUInt32(8, value); }
+        }
+
+        public UInt32 TargetId
+        {
+            get { return __Data; }
+            set { __Data = value; WriteUInt32(8, value); }
+        }
+
+        /// <summary>
+        /// Create a message object from the specified buffer.
+        /// </summary>
+        /// <param name="aBuf">The buffer containing the message.</param>
+        /// <param name="aIndex">The index where the message is starting in the buffer.</param>
+        /// <param name="aLength">The length of the message.</param>
+        internal MsgSyndicate(Byte[] aBuf, int aIndex, int aLength)
+            : base(aBuf, aIndex, aLength)
+        {
+            __Action = (Action)BitConverter.ToUInt32(mBuf, 4);
+            __Data = BitConverter.ToUInt32(mBuf, 8);
+        }
+
+        public MsgSyndicate(UInt32 aData, Action aAction)
+            : base(12)
+        {
+            _Action = aAction;
+            Data = aData;
+        }
+
+        /// <summary>
+        /// Process the message for the specified client.
+        /// </summary>
+        /// <param name="aClient">The client who sent the message.</param>
+        public override void Process(Client aClient)
+        {
+            Player player = aClient.Player;
+
+            switch (_Action)
             {
-                if (Client == null || Buffer == null || Client.User == null)
-                    return;
+                case Action.ApplyJoin:
+                    {
+                        if (player.Syndicate != null)
+                            return;
 
-                if (Buffer.Length != sizeof(MsgInfo))
-                    return;
+                        Player target = null;
+                        if (!World.AllPlayers.TryGetValue((Int32)TargetId, out target))
+                            return;
 
-                MsgInfo* pMsg = null;
-                fixed (Byte* pBuf = Buffer)
-                    pMsg = (MsgInfo*)pBuf;
+                        if (target.Syndicate == null)
+                            return;
 
-                Player Player = Client.User;
+                        Syndicate.Member member = target.Syndicate.GetMemberInfo((Int32)TargetId);
+                        if (member.Rank != Syndicate.Rank.Leader && member.Rank != Syndicate.Rank.SubLeader &&
+                            member.Rank != Syndicate.Rank.BranchMgr && member.Rank != Syndicate.Rank.InternMgr && member.Rank != Syndicate.Rank.DeputyMgr)
+                            return;
 
-                switch ((Action)pMsg->Action)
-                {
-                    case Action.ApplyJoin:
+                        TargetId = (UInt32)player.UniqId;
+                        target.Send(this);
+                        break;
+                    }
+                case Action.InviteJoin:
+                    {
+                        if (player.Syndicate == null)
+                            return;
+
+                        Player target = null;
+                        if (!World.AllPlayers.TryGetValue((Int32)TargetId, out target))
+                            return;
+
+                        if (target.Syndicate != null)
+                            return;
+
+                        Syndicate.Member member = player.Syndicate.GetMemberInfo(player.UniqId);
+                        if (member.Rank != Syndicate.Rank.Leader && member.Rank != Syndicate.Rank.SubLeader &&
+                            member.Rank != Syndicate.Rank.BranchMgr && member.Rank != Syndicate.Rank.InternMgr && member.Rank != Syndicate.Rank.DeputyMgr)
+                            return;
+
+                        player.Syndicate.AddMember(target);
+                        break;
+                    }
+                case Action.LeaveSyn:
+                    {
+                        if (player.Syndicate == null)
+                            return;
+
+                        Syndicate syn = player.Syndicate;
+                        Syndicate.Member member = syn.GetMemberInfo(player.UniqId);
+
+                        if (member.Id == syn.Leader.Id)
                         {
-                            if (Player.Syndicate != null)
-                                return;
-
-                            Player Target = null;
-                            if (!World.AllPlayers.TryGetValue(pMsg->Param, out Target))
-                                return;
-
-                            if (Target.Syndicate == null)
-                                return;
-
-                            Syndicate.Member Member = Target.Syndicate.GetMemberInfo(pMsg->Param);
-                            if (!(Member.Rank == 100 || Member.Rank == 90))
-                                return;
-
-                            pMsg->Param = Player.UniqId;
-                            Target.Send(Buffer);
-                            break;
+                            player.SendSysMsg(StrRes.STR_NO_DISBAND);
+                            return;
                         }
-                    case Action.InviteJoin:
+
+                        if (member.Proffer < 20000)
                         {
-                            if (Player.Syndicate == null)
-                                return;
-
-                            Player Target = null;
-                            if (!World.AllPlayers.TryGetValue(pMsg->Param, out Target))
-                                return;
-
-                            if (Target.Syndicate != null)
-                                return;
-
-                            Syndicate.Member Member = Player.Syndicate.GetMemberInfo(Player.UniqId);
-                            if (!(Member.Rank == 100 || Member.Rank == 90))
-                                return;
-
-                            Player.Syndicate.AddMember(Target);
-                            break;
+                            player.SendSysMsg(StrRes.STR_SYN_NOTENOUGH_DONATION_LEAVE);
+                            return;
                         }
-                    case Action.LeaveSyn:
+
+                        syn.LeaveSyn(player, false, true);
+                        World.BroadcastSynMsg(syn, new MsgTalk("SYSTEM", "ALLUSERS", String.Format(StrRes.STR_SYN_LEAVE, player.Name), Channel.Syndicate, Color.White));
+                        break;
+                    }
+                case Action.QuerySynName:
+                    {
+                        Syndicate syn = null;
+                        if (!World.AllSyndicates.TryGetValue((UInt16)Data, out syn))
+                            return;
+
+                        if (syn.FealtySynUID == 0)
+                            player.Send(new MsgName(Data, syn.Name, MsgName.NameAct.Syndicate));
+                        else
                         {
-                            if (Player.Syndicate == null)
-                                return;
-
-                            Syndicate.Info Syn = Player.Syndicate;
-                            Syndicate.Member Member = Syn.GetMemberInfo(Player.UniqId);
-
-                            if (Member.UniqId == Syn.Leader.UniqId)
-                            {
-                                Player.SendSysMsg(Client.GetStr("STR_NO_DISBAND"));
-                                return;
-                            }
-
-                            if (Member.Donation < 20000)
-                            {
-                                Player.SendSysMsg(Client.GetStr("STR_SYN_NOTENOUGH_DONATION_LEAVE"));
-                                return;
-                            }
-
-                            Syn.DelMember(Member, false);
-                            World.BroadcastSynMsg(Syn, MsgTalk.Create("SYSTEM", "ALLUSERS", String.Format(Client.GetStr("STR_SYN_LEAVE"), Player.Name), MsgTalk.Channel.Syndicate, 0xFFFFFF));
-                            break;
+                            String[] names = new String[2];
+                            names[0] = syn.GetMasterSyn().Name;
+                            names[1] = syn.Name;
+                            player.Send(new MsgName((UInt32)Data, names, MsgName.NameAct.Syndicate));
                         }
-                    case Action.QuerySynName:
-                        {
-                            Syndicate.Info Syn = null;
-                            if (!World.AllSyndicates.TryGetValue((Int16)pMsg->Param, out Syn))
-                                return;
+                        break;
+                    }
+                case Action.DonateMoney:
+                    {
+                        Syndicate syn = player.Syndicate;
+                        if (syn == null)
+                            return;
 
-                            if (Syn.GetMasterSyn() == null)
-                                Player.Send(MsgName.Create(pMsg->Param, Syn.Name, MsgName.Action.Syndicate));
-                            else
-                            {
-                                String[] Names = new String[2];
-                                Names[0] = Syn.GetMasterSyn().Name;
-                                Names[1] = Syn.Name;
-                                Player.Send(MsgName.Create(pMsg->Param, Names, MsgName.Action.Syndicate));
-                            }
-                            break;
-                        }
-                    case Action.DonateMoney:
-                        {
-                            Syndicate.Info Syn = Player.Syndicate;
-                            if (Syn == null)
-                                return;
+                        if (syn.Donate(player, Data))
+                            player.Send(new MsgSynAttrInfo(player.UniqId, syn));
+                        break;
+                    }
+                case Action.QuerySynAttr:
+                    {
+                        Player target = null;
+                        if (!World.AllPlayers.TryGetValue((Int32)TargetId, out target))
+                            return;
 
-                            if (Syn.DonateMoney(Player, pMsg->Param))
-                                Player.Send(MsgSynAttrInfo.Create(Player.UniqId, Syn));
-                            break;
-                        }
-                    case Action.QuerySynAttr:
-                        {
-                            Player Target = null;
-                            if (!World.AllPlayers.TryGetValue(pMsg->Param, out Target))
-                                return;
-
-                            if (Target.Syndicate == null)
-                                return;
-
-                            Player.Send(MsgSynAttrInfo.Create(pMsg->Param, Target.Syndicate));
-                            Player.Send(MsgTalk.Create("SYSTEM", "ALLUSERS", Target.Syndicate.Announce, MsgTalk.Channel.SynAnnounce, 0x000000));
-                            break;
-                        }
-                    default:
-                        {
-                            Console.WriteLine("Msg[{0}], Action[{1}] not implemented yet!", pMsg->Header.Type, pMsg->Action);
-                            break;
-                        }
-                }
+                        Syndicate.SynchroInfo(target, true);
+                        break;
+                    }
+                default:
+                    {
+                        sLogger.Error("Action {0} is not implemented for MsgSyndicate.", (UInt32)_Action);
+                        break;
+                    }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
         }
     }
 }

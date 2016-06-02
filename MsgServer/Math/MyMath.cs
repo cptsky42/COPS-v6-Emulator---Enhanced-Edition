@@ -1,20 +1,18 @@
 ﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010
-// * Logik. Project
+// * Copyright © 2010, 2015
+// * COPS v6 Emulator
 
 using System;
 using System.Drawing;
 using System.Collections.Generic;
-using CO2_CORE_DLL;
 
 namespace COServer
 {
     public partial class MyMath
     {
-        private static SafeRandom Rand = new SafeRandom(Environment.TickCount);
+        private static SafeRandom sRand = new SafeRandom();
 
         public const Int32 NORMAL_RANGE = 17;
-        public const Int32 BIG_RANGE = 34;
         public const Int32 USERDROP_RANGE = 9;
 
         /// <summary>
@@ -211,8 +209,7 @@ namespace COServer
         /// </summary>
         public static Int32 GetDistance(Double x1, Double y1, Double x2, Double y2)
         {
-            Double Value = (Double)(((x1 - x2) * (x1 - x2)) + ((y1 - y2) * (y1 - y2)));
-            return (Int32)Math.Sqrt(Value);
+            return (Int32)Math.Sqrt((Double)(((x1 - x2) * (x1 - x2)) + ((y1 - y2) * (y1 - y2))));
         }
 
         /// <summary>
@@ -220,14 +217,9 @@ namespace COServer
         /// </summary>
         public static Int32 Generate(Int32 Min, Int32 Max)
         {
-            if (Max != Int32.MaxValue)
-                Max++;
-
-            Int32 Value = 0;
-            /*lock (Rand) { */Value = Rand.Next(Min, Max); /*}*/
-            return Value;
+            return sRand.Next(Min, Max + 1);
         }
 
-        public static Boolean Success(Double Chance) { return ((Double)Generate(1, 1000000)) / 10000 >= 100 - Chance; }
+        public static Boolean Success(Double aChance) { return ((Double)Generate(1, 1000000)) / 10000 >= 100 - aChance; }
     }
 }

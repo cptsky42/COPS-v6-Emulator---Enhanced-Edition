@@ -1,6 +1,10 @@
-// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
 using System.Runtime.InteropServices;
@@ -8,9 +12,13 @@ using COServer.Entities;
 
 namespace COServer.Network
 {
-    public unsafe class MsgTeam : Msg
+    public class MsgTeam : Msg
     {
-        public const Int16 Id = _MSG_TEAM;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_TEAM; } }
 
         public enum Action
         {
@@ -29,347 +37,353 @@ namespace COServer.Network
 			CloseItemAccess = 12, //TS
 			OpenItemAccess = 13, //TS
 		};
-		
-        [StructLayout(LayoutKind.Sequential)]
-        public struct MsgInfo
+
+        //--------------- Internal Members ---------------
+        private Action __Action = 0;
+        private Int32 __Id = 0;
+        //------------------------------------------------
+
+        /// <summary>
+        /// Action Id.
+        /// </summary>
+        public Action _Action
         {
-            public MsgHeader Header;
-            public Int32 Action;
-			public Int32 UniqId;
-        };
-
-        public static Byte[] Create(Int32 UniqId, Action Action)
-        {
-            try
-            {
-                MsgInfo* pMsg = stackalloc MsgInfo[1];
-                pMsg->Header.Length = (Int16)sizeof(MsgInfo);
-                pMsg->Header.Type = Id;
-
-				pMsg->Action = (Int32)Action;
-                pMsg->UniqId = UniqId;
-
-                Byte[] Out = new Byte[pMsg->Header.Length];
-                Marshal.Copy((IntPtr)pMsg, Out, 0, Out.Length);
-
-                return Out;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+            get { return __Action; }
+            set { __Action = value; WriteUInt32(4, (UInt32)value); }
         }
 
-        public static void Process(Client Client, Byte[] Buffer)
+        public Int32 Id
         {
-            try
+            get { return __Id; }
+            set { __Id = value; WriteInt32(8, value); }
+        }
+
+        /// <summary>
+        /// Create a message object from the specified buffer.
+        /// </summary>
+        /// <param name="aBuf">The buffer containing the message.</param>
+        /// <param name="aIndex">The index where the message is starting in the buffer.</param>
+        /// <param name="aLength">The length of the message.</param>
+        internal MsgTeam(Byte[] aBuf, int aIndex, int aLength)
+            : base(aBuf, aIndex, aLength)
+        {
+            __Action = (Action)BitConverter.ToUInt32(mBuf, 4);
+            __Id = BitConverter.ToInt32(mBuf, 8);
+        }
+
+        public MsgTeam(Player aPlayer, Action aAction)
+            : base(12)
+        {
+            _Action = aAction;
+            Id = aPlayer.UniqId;
+        }
+
+        public MsgTeam(Team aTeam, Action aAction)
+            : base(12)
+        {
+            _Action = aAction;
+            Id = aTeam.UniqId;
+        }
+
+        /// <summary>
+        /// Process the message for the specified client.
+        /// </summary>
+        /// <param name="aClient">The client who sent the message.</param>
+        public override void Process(Client aClient)
+        {
+            if (!World.AllPlayers.ContainsKey(Id))
+                return;
+
+            Player player = World.AllPlayers[Id];
+
+            if (player.Map.IsTeam_Disable())
+                return;
+
+            switch (_Action)
             {
-                if (Client == null || Buffer == null || Client.User == null)
-                    return;
-
-                Int16 MsgLength = (Int16)((Buffer[0x01] << 8) + Buffer[0x00]);
-                Int16 MsgId = (Int16)((Buffer[0x03] << 8) + Buffer[0x02]);
-                Action Action = (Action)((Buffer[0x07] << 24) + (Buffer[0x06] << 16) + (Buffer[0x05] << 8) + Buffer[0x04]);
-                Int32 UniqId = (Int32)((Buffer[0x0B] << 24) + (Buffer[0x0A] << 16) + (Buffer[0x09] << 8) + Buffer[0x08]);
-				
-				if (!World.AllPlayers.ContainsKey(UniqId))
-					return;
-				
-				Player User = World.AllPlayers[UniqId];
-				
-				if (World.AllMaps.ContainsKey(User.Map))
-				{
-					Map Map = World.AllMaps[User.Map];
-					if (Map.IsTeam_Disable())
-						return;
-				}
-				
-                switch (Action)
-                {
-                    case Action.Create:
+                case Action.Create:
+                    {
+                        if (player.Team != null)
                         {
-                            if (User.Team != null)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_HAVE_TEAM"));
-                                return;
-                            }
-
-                            Team Team = Team.CreateNew(User);
-                            if (Team == null)
-                                return;
-
-							User.Team = Team;
-							User.Send(MsgTeam.Create(User.UniqId, Action.Create));
-
-                            User.AddFlag(Player.Flag.TeamLeader);
-                            World.BroadcastRoomMsg(User, MsgUserAttrib.Create(User, User.Flags, MsgUserAttrib.Type.Flags), true);
-                            break;
+                            player.SendSysMsg(StrRes.STR_HAVE_TEAM);
+                            return;
                         }
-                    case Action.ApplyJoin:
+
+                        Team team = Team.CreateNew(player);
+                        if (team == null)
+                            return;
+
+                        player.Team = team;
+                        player.Send(new MsgTeam(player, Action.Create));
+                        player.AttachStatus(Status.TeamLeader);
+                        break;
+                    }
+                case Action.ApplyJoin:
+                    {
+                        Team team = player.Team;
+                        if (team == null)
+                            return;
+
+                        if (team.UniqId != player.UniqId)
+                            return;
+
+                        if (team.GetMemberAmount() >= Team.MAX_TEAM_AMOUNT)
                         {
-                            Team Team = User.Team;
-                            if (Team == null)
-                                return;
-
-                            if (Team.UniqId != User.UniqId)
-                                return;
-
-                            if (Team.GetMemberAmount() >= Team._MAX_TEAMAMOUNT)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_TEAM_FULL"));
-                                return;
-                            }
-
-                            if (Client.User.Team != null)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_HAVE_TEAM"));
-                                return;
-                            }
-
-                            if (Team.IsClosed())
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_TEAM_CLOSED"));
-                                return;
-                            }
-
-                            Team.Leader.Send(MsgTeam.Create(Client.User.UniqId, Action.ApplyJoin));
-                            Client.User.SendSysMsg(Client.GetStr("STR_REQUEST_SENT"));
-                            break;
+                            player.SendSysMsg(StrRes.STR_TEAM_FULL);
+                            return;
                         }
-                    case Action.Leave:
-                        {
-                            Team Team = User.Team;
-                            if (Team == null)
-                                return;
 
-                            World.BroadcastTeamMsg(Team, Buffer);
-                            Team.DelMember(User, false);
-                            break;
+                        if (aClient.Player.Team != null)
+                        {
+                            player.SendSysMsg(StrRes.STR_HAVE_TEAM);
+                            return;
                         }
-                    case Action.AcceptInvite:
+
+                        if (team.IsClosed())
                         {
-                            Team Team = User.Team;
-                            if (Team == null)
-                                return;
-
-                            if (Team.UniqId != User.UniqId)
-                                return;
-
-                            if (Team.GetMemberAmount() >= Team._MAX_TEAMAMOUNT)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_TEAM_FULL"));
-                                return;
-                            }
-
-                            if (Client.User.Team != null)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_HAVE_TEAM"));
-                                return;
-                            }
-
-                            Team.AddMember(Client.User, true);
-                            //Client.Send(MsgAction.Create(Team.Leader, Team.Leader.Map, (MsgAction.Action)101));
-                            break;
+                            player.SendSysMsg(StrRes.STR_TEAM_CLOSED);
+                            return;
                         }
-                    case Action.Invite:
+
+                        team.Leader.Send(new MsgTeam(aClient.Player, Action.ApplyJoin));
+                        aClient.Player.SendSysMsg(StrRes.STR_REQUEST_SENT);
+                        break;
+                    }
+                case Action.Leave:
+                    {
+                        Team team = player.Team;
+                        if (team == null)
+                            return;
+
+                        team.BroadcastMsg(this);
+                        team.DelMember(player, false);
+                        break;
+                    }
+                case Action.AcceptInvite:
+                    {
+                        Team team = player.Team;
+                        if (team == null)
+                            return;
+
+                        if (team.UniqId != player.UniqId)
+                            return;
+
+                        if (team.GetMemberAmount() >= Team.MAX_TEAM_AMOUNT)
                         {
-                            Team Team = Client.User.Team;
-                            if (Team == null)
-                                return;
-
-                            if (Team.UniqId != Client.User.UniqId)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_NOT_TEAM_LEADER"));
-                                return;
-                            }
-
-                            if (Team.GetMemberAmount() >= Team._MAX_TEAMAMOUNT)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_TEAM_FULL"));
-                                return;
-                            }
-
-                            Player Target = null;
-                            if (World.AllPlayers.TryGetValue(UniqId, out Target))
-                            {
-                                if (Target.Team != null)
-                                    return;
-
-                                Target.Send(MsgTeam.Create(Client.User.UniqId, Action.Invite));
-                            }
-                            Client.User.SendSysMsg(Client.GetStr("STR_INVITATION_SENT"));
-                            break;
+                            player.SendSysMsg(StrRes.STR_TEAM_FULL);
+                            return;
                         }
-                    case Action.AgreeJoin:
+
+                        if (aClient.Player.Team != null)
                         {
-                            Team Team = Client.User.Team;
-                            if (Team == null)
-                                return;
-
-                            if (Team.UniqId != Client.User.UniqId)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_NOT_TEAM_LEADER"));
-                                return;
-                            }
-
-                            if (Team.GetMemberAmount() >= Team._MAX_TEAMAMOUNT)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_TEAM_FULL"));
-                                return;
-                            }
-
-                            Player Target = null;
-                            if (World.AllPlayers.TryGetValue(UniqId, out Target))
-                            {
-                                if (Target.Team != null)
-                                    return;
-
-                                Target.Send(MsgTeam.Create(Team.UniqId, Action.AgreeJoin));
-                                Team.AddMember(Target, true);
-                                //Target.Send(MsgAction.Create(Team.Leader, Team.Leader.Map, (MsgAction.Action)101));
-                            }
-                            break;
+                            player.SendSysMsg(StrRes.STR_HAVE_TEAM);
+                            return;
                         }
-                    case Action.Dismiss:
+
+                        team.AddMember(aClient.Player, true);
+                        //Client.Send(new MsgAction(Team.Leader, Team.Leader.Map, (MsgAction.Action)101));
+                        break;
+                    }
+                case Action.Invite:
+                    {
+                        Team team = aClient.Player.Team;
+                        if (team == null)
+                            return;
+
+                        if (team.UniqId != aClient.Player.UniqId)
                         {
-                            Team Team = User.Team;
-                            if (Team == null)
-                                return;
-
-                            if (Team.UniqId != User.UniqId)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_NOT_TEAM_LEADER"));
-                                return;
-                            }
-
-                            Team.Dismiss(User);
-                            break;
+                            player.SendSysMsg(StrRes.STR_NOT_TEAM_LEADER);
+                            return;
                         }
-                    case Action.KickOut:
+
+                        if (team.GetMemberAmount() >= Team.MAX_TEAM_AMOUNT)
                         {
-                            Team Team = Client.User.Team;
-                            if (Team == null)
-                                return;
-
-                            if (Team.UniqId != Client.User.UniqId)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_NOT_TEAM_LEADER"));
-                                return;
-                            }
-
-                            if (Team.GetMemberAmount() >= Team._MAX_TEAMAMOUNT)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_TEAM_FULL"));
-                                return;
-                            }
-
-                            World.BroadcastTeamMsg(Team, Buffer);
-
-                            Player Target = null;
-                            if (World.AllPlayers.TryGetValue(UniqId, out Target))
-                            {
-                                if (Target.Team == null)
-                                    return;
-
-                                Team.DelMember(Target, false);
-                            }
-                            break;
+                            player.SendSysMsg(StrRes.STR_TEAM_FULL);
+                            return;
                         }
-                    case Action.CloseTeam:
-                        {
-					        Team Team = User.Team;
-							if (Team == null)
-								return;
-					
-							if (Team.UniqId != User.UniqId)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_NOT_TEAM_LEADER"));
-                                return;
-                            }
 
-                            Team.Close();
-                            break;
-                        }	
-                    case Action.OpenTeam:
+                        Player target = null;
+                        if (World.AllPlayers.TryGetValue(Id, out target))
                         {
-					        Team Team = User.Team;
-							if (Team == null)
-								return;
-					
-							if (Team.UniqId != User.UniqId)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_NOT_TEAM_LEADER"));
+                            if (target.Team != null)
                                 return;
-                            }
 
-                            Team.Open();
-                            break;
-                        }	
-                    case Action.CloseMoneyAccess:
-                        {
-					        Team Team = User.Team;
-							if (Team == null)
-								return;
-					
-							if (Team.UniqId != User.UniqId)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_NOT_TEAM_LEADER"));
-                                return;
-                            }
-
-                            Team.CloseMoney();
-                            break;
-                        }	
-                    case Action.OpenMoneyAccess:
-                        {
-					        Team Team = User.Team;
-							if (Team == null)
-								return;
-					
-							if (Team.UniqId != User.UniqId)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_NOT_TEAM_LEADER"));
-                                return;
-                            }
-
-                            Team.OpenMoney();
-                            break;
-                        }		
-                    case Action.CloseItemAccess:
-                        {
-					        Team Team = User.Team;
-							if (Team == null)
-								return;
-					
-							if (Team.UniqId != User.UniqId)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_NOT_TEAM_LEADER"));
-                                return;
-                            }
-
-                            Team.CloseItem();
-                            break;
-                        }	
-                    case Action.OpenItemAccess:
-                        {
-					        Team Team = User.Team;
-							if (Team == null)
-								return;
-					
-							if (Team.UniqId != User.UniqId)
-                            {
-                                User.SendSysMsg(Client.GetStr("STR_NOT_TEAM_LEADER"));
-                                return;
-                            }
-
-                            Team.OpenItem();
-                            break;
-                        }					
-                    default:
-                        {
-                            Console.WriteLine("Msg[{0}], Action[{1}] not implemented yet!", MsgId, (Int16)Action);
-                            break;
+                            target.Send(new MsgTeam(aClient.Player, Action.Invite));
                         }
-                }
+                        aClient.Player.SendSysMsg(StrRes.STR_INVITATION_SENT);
+                        break;
+                    }
+                case Action.AgreeJoin:
+                    {
+                        Team team = aClient.Player.Team;
+                        if (team == null)
+                            return;
+
+                        if (team.UniqId != aClient.Player.UniqId)
+                        {
+                            player.SendSysMsg(StrRes.STR_NOT_TEAM_LEADER);
+                            return;
+                        }
+
+                        if (team.GetMemberAmount() >= Team.MAX_TEAM_AMOUNT)
+                        {
+                            player.SendSysMsg(StrRes.STR_TEAM_FULL);
+                            return;
+                        }
+
+                        Player target = null;
+                        if (World.AllPlayers.TryGetValue(Id, out target))
+                        {
+                            if (target.Team != null)
+                                return;
+
+                            target.Send(new MsgTeam(team, Action.AgreeJoin));
+                            team.AddMember(target, true);
+                            //Target.Send(new MsgAction(Team.Leader, Team.Leader.Map, (MsgAction.Action)101));
+                        }
+                        break;
+                    }
+                case Action.Dismiss:
+                    {
+                        Team team = player.Team;
+                        if (team == null)
+                            return;
+
+                        if (team.UniqId != player.UniqId)
+                        {
+                            player.SendSysMsg(StrRes.STR_NOT_TEAM_LEADER);
+                            return;
+                        }
+
+                        team.Dismiss(player);
+                        break;
+                    }
+                case Action.KickOut:
+                    {
+                        Team team = aClient.Player.Team;
+                        if (team == null)
+                            return;
+
+                        if (team.UniqId != aClient.Player.UniqId)
+                        {
+                            player.SendSysMsg(StrRes.STR_NOT_TEAM_LEADER);
+                            return;
+                        }
+
+                        if (team.GetMemberAmount() >= Team.MAX_TEAM_AMOUNT)
+                        {
+                            player.SendSysMsg(StrRes.STR_TEAM_FULL);
+                            return;
+                        }
+
+                        team.BroadcastMsg(this);
+
+                        Player target = null;
+                        if (World.AllPlayers.TryGetValue(Id, out target))
+                        {
+                            if (target.Team == null)
+                                return;
+
+                            team.DelMember(target, false);
+                        }
+                        break;
+                    }
+                case Action.CloseTeam:
+                    {
+                        Team team = player.Team;
+                        if (team == null)
+                            return;
+
+                        if (team.UniqId != player.UniqId)
+                        {
+                            player.SendSysMsg(StrRes.STR_NOT_TEAM_LEADER);
+                            return;
+                        }
+
+                        team.Close();
+                        break;
+                    }
+                case Action.OpenTeam:
+                    {
+                        Team team = player.Team;
+                        if (team == null)
+                            return;
+
+                        if (team.UniqId != player.UniqId)
+                        {
+                            player.SendSysMsg(StrRes.STR_NOT_TEAM_LEADER);
+                            return;
+                        }
+
+                        team.Open();
+                        break;
+                    }
+                case Action.CloseMoneyAccess:
+                    {
+                        Team team = player.Team;
+                        if (team == null)
+                            return;
+
+                        if (team.UniqId != player.UniqId)
+                        {
+                            player.SendSysMsg(StrRes.STR_NOT_TEAM_LEADER);
+                            return;
+                        }
+
+                        team.CloseMoney();
+                        break;
+                    }
+                case Action.OpenMoneyAccess:
+                    {
+                        Team team = player.Team;
+                        if (team == null)
+                            return;
+
+                        if (team.UniqId != player.UniqId)
+                        {
+                            player.SendSysMsg(StrRes.STR_NOT_TEAM_LEADER);
+                            return;
+                        }
+
+                        team.OpenMoney();
+                        break;
+                    }
+                case Action.CloseItemAccess:
+                    {
+                        Team team = player.Team;
+                        if (team == null)
+                            return;
+
+                        if (team.UniqId != player.UniqId)
+                        {
+                            player.SendSysMsg(StrRes.STR_NOT_TEAM_LEADER);
+                            return;
+                        }
+
+                        team.CloseItem();
+                        break;
+                    }
+                case Action.OpenItemAccess:
+                    {
+                        Team team = player.Team;
+                        if (team == null)
+                            return;
+
+                        if (team.UniqId != player.UniqId)
+                        {
+                            player.SendSysMsg(StrRes.STR_NOT_TEAM_LEADER);
+                            return;
+                        }
+
+                        team.OpenItem();
+                        break;
+                    }
+                default:
+                    {
+                        sLogger.Error("Action {0} is not implemented for MsgTeam.", (UInt16)_Action);
+                        break;
+                    }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
         }
     }
 }

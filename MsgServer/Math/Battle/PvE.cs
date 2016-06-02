@@ -1,10 +1,10 @@
 ﻿// * Created by Jean-Philippe Boivin
 // * Copyright © 2011
-// * Logik. Project
+// * COPS v6 Emulator
 
 using System;
 using COServer.Entities;
-using CO2_CORE_DLL.IO;
+using COServer.Network;
 
 namespace COServer
 {
@@ -45,20 +45,20 @@ namespace COServer
             if (Attacker.LuckyTime > 0 && MyMath.Success(10))
             {
                 Damage *= 2;
-                World.BroadcastRoomMsg(Attacker, Network.MsgName.Create(Attacker.UniqId, "LuckyGuy", Network.MsgName.Action.RoleEffect), true);
+                World.BroadcastRoomMsg(Attacker, new MsgName(Attacker.UniqId, "LuckyGuy", Network.MsgName.NameAct.RoleEffect), true);
             }
 
             return (Int32)Math.Round(Damage, 0);
         }
 
-        public static Int32 GetDamagePlayer2Environment(Player Attacker, TerrainNPC Target, Int16 MagicType, Byte MagicLevel)
+        public static Int32 GetDamagePlayer2Environment(Player Attacker, TerrainNPC Target, UInt16 MagicType, Byte MagicLevel)
         {
-            MagicType.Entry Info = new MagicType.Entry();
-            Database2.AllMagics.TryGetValue((MagicType * 10) + MagicLevel, out Info);
+            Magic.Info Info = new Magic.Info();
+            Database.AllMagics.TryGetValue((MagicType * 10) + MagicLevel, out Info);
 
             Double Damage = 0;
 
-            if (Info.MagicType == 1115 || (Info.WeaponSubType != 0 && Info.WeaponSubType != 500))
+            if (Info.Type == 1115 || (Info.WeaponSubtype != 0 && Info.WeaponSubtype != 500))
             {
                 Damage = MyMath.Generate(Attacker.MinAtk, Attacker.MaxAtk);
                 if (Info.Power > 30000)
@@ -68,7 +68,7 @@ namespace COServer
 
                 Damage -= Target.Defence;
             }
-            else if (Info.WeaponSubType == 500)
+            else if (Info.WeaponSubtype == 500)
             {
                 Damage = MyMath.Generate(Attacker.MinAtk, Attacker.MaxAtk);
                 if (Info.Power > 30000)
@@ -94,7 +94,7 @@ namespace COServer
             if (Attacker.LuckyTime > 0 && MyMath.Success(10))
             {
                 Damage *= 2;
-                World.BroadcastRoomMsg(Attacker, Network.MsgName.Create(Attacker.UniqId, "LuckyGuy", Network.MsgName.Action.RoleEffect), true);
+                World.BroadcastRoomMsg(Attacker, new MsgName(Attacker.UniqId, "LuckyGuy", Network.MsgName.NameAct.RoleEffect), true);
             }
 
             return (Int32)Math.Round(Damage, 0);

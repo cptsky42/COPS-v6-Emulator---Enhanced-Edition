@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
@@ -9,7 +9,7 @@
     <OutputType>Exe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>COServer</RootNamespace>
-    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.5.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <ApplicationIcon>Logik.ico</ApplicationIcon>
     <FileUpgradeFlags>
@@ -20,8 +20,8 @@
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
     <DebugSymbols>true</DebugSymbols>
-    <OutputPath>..\Emulator %28x86%29\</OutputPath>
-    <DefineConstants>TRACE;DEBUG;MYSQL_DB</DefineConstants>
+    <OutputPath>..\Test Server\</OutputPath>
+    <DefineConstants>TRACE;DEBUG;_X86</DefineConstants>
     <DebugType>full</DebugType>
     <PlatformTarget>x86</PlatformTarget>
     <ErrorReport>prompt</ErrorReport>
@@ -29,11 +29,12 @@
     <Optimize>false</Optimize>
     <AssemblyName>MsgServer</AssemblyName>
     <WarningLevel>0</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
     <DebugSymbols>true</DebugSymbols>
-    <OutputPath>..\Debug (x64)\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <OutputPath>..\Test Server\</OutputPath>
+    <DefineConstants>TRACE;DEBUG;_X64</DefineConstants>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Optimize>false</Optimize>
     <DebugType>full</DebugType>
@@ -41,24 +42,25 @@
     <ErrorReport>prompt</ErrorReport>
     <AssemblyName>MsgServer64</AssemblyName>
     <WarningLevel>4</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
     <DebugSymbols>true</DebugSymbols>
     <OutputPath>..\Release %28x86%29\</OutputPath>
-    <DefineConstants>
-    </DefineConstants>
+    <DefineConstants>_X86</DefineConstants>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Optimize>true</Optimize>
     <DebugType>full</DebugType>
     <PlatformTarget>x86</PlatformTarget>
     <ErrorReport>prompt</ErrorReport>
+    <AssemblyName>MsgServer</AssemblyName>
     <WarningLevel>0</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
     <DebugSymbols>true</DebugSymbols>
     <OutputPath>..\Release %28x64%29\</OutputPath>
-    <DefineConstants>
-    </DefineConstants>
+    <DefineConstants>_X64</DefineConstants>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Optimize>true</Optimize>
     <DebugType>full</DebugType>
@@ -67,24 +69,32 @@
     <CodeAnalysisIgnoreBuiltInRuleSets>false</CodeAnalysisIgnoreBuiltInRuleSets>
     <CodeAnalysisIgnoreBuiltInRules>false</CodeAnalysisIgnoreBuiltInRules>
     <CodeAnalysisFailOnMissingRules>false</CodeAnalysisFailOnMissingRules>
+    <AssemblyName>MsgServer64</AssemblyName>
     <WarningLevel>0</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="AMS.Profile, Version=2.0.4015.27146, Culture=neutral, processorArchitecture=MSIL">
+    <Reference Include="log4net, Version=1.2.13.0, Culture=neutral, PublicKeyToken=669e0ddf0bb1aa2a, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\AMS.Profile.dll</HintPath>
+      <HintPath>..\Libraries\log4net-1.2.13\bin\net\4.0\release\log4net.dll</HintPath>
     </Reference>
-    <Reference Include="CO2_CORE_DLL, Version=1.0.0.11, Culture=neutral, processorArchitecture=x86">
+    <Reference Include="MongoDB.Bson, Version=1.9.2.235, Culture=neutral, PublicKeyToken=f686731cfb9cc103, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\CO2_CORE_DLL.dll</HintPath>
+      <HintPath>..\Libraries\CSharpDriver-1.9.2\MongoDB.Bson.dll</HintPath>
     </Reference>
-    <Reference Include="Ionic.Zip, Version=1.9.1.8, Culture=neutral, PublicKeyToken=edbe51ad942a3f5c, processorArchitecture=MSIL">
+    <Reference Include="MongoDB.Driver, Version=1.9.2.235, Culture=neutral, PublicKeyToken=f686731cfb9cc103, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\Ionic.Zip.dll</HintPath>
+      <HintPath>..\Libraries\CSharpDriver-1.9.2\MongoDB.Driver.dll</HintPath>
     </Reference>
-    <Reference Include="mysql.data, Version=6.4.4.0, Culture=neutral, PublicKeyToken=c5687fc88969c44d, processorArchitecture=MSIL">
+    <Reference Include="MoonSharp.Interpreter">
+      <HintPath>..\Libraries\MoonSharp-0.8.5.1\interpreter\MoonSharp.Interpreter.dll</HintPath>
+    </Reference>
+    <Reference Include="MySql.Data, Version=6.9.5.0, Culture=neutral, PublicKeyToken=c5687fc88969c44d, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\mysql.data.dll</HintPath>
+      <HintPath>..\Libraries\mysql-connector-net-6.9.5\v4.0\MySql.Data.dll</HintPath>
+    </Reference>
+    <Reference Include="Nini">
+      <HintPath>..\Nini.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core">
@@ -92,21 +102,23 @@
     </Reference>
     <Reference Include="System.Data" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.Management" />
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Battle\Battle.cs" />
     <Compile Include="Battle\Magic\WeaponAttribute.cs" />
     <Compile Include="Battle\MvP.cs" />
     <Compile Include="Battle\PkMode.cs" />
     <Compile Include="Battle\PvE.cs" />
     <Compile Include="Battle\PvM.cs" />
-    <Compile Include="Database\Backup.cs" />
+    <Compile Include="Common.cs" />
     <Compile Include="Database\Database.cs" />
-    <Compile Include="Database\Info\Lottery.cs" />
+    <Compile Include="Database\DBI\MongoDB.cs" />
+    <Compile Include="Database\DBI\MySQL.cs" />
+    <Compile Include="Entities\AI\AI.cs" />
     <Compile Include="Entities\AI\Pet.cs" />
     <Compile Include="Entities\Booth.cs" />
-    <Compile Include="Database\Rates.cs" />
-    <Compile Include="Database\Syndicate.cs" />
     <Compile Include="Entities\AI\Monster.cs" />
     <Compile Include="Battle\Magic\Type05.cs" />
     <Compile Include="Battle\Magic\Type11.cs" />
@@ -116,22 +128,7 @@
     <Compile Include="Battle\Magic\WeaponSkill.cs" />
     <Compile Include="Battle\PvP.cs" />
     <Compile Include="Client.cs" />
-    <Compile Include="Database\Info\Generator.cs" />
-    <Compile Include="Database\Info\Goods.cs" />
-    <Compile Include="Database\Info\LevExp.cs" />
-    <Compile Include="Database\Info\MonsterType.cs" />
-    <Compile Include="Database\Info\Point_Allot.cs" />
-    <Compile Include="Database\Info\Portal.cs" />
-    <Compile Include="Database\Info\WeaponSkillExp.cs" />
-    <Compile Include="Database\Item.cs" />
-    <Compile Include="Database\Info\ItemAddition.cs" />
-    <Compile Include="Database\Loading.cs" />
-    <Compile Include="Database\Magic.cs" />
-    <Compile Include="Database\Map.cs" />
-    <Compile Include="Database\Nobility.cs" />
-    <Compile Include="Database\NPC.cs" />
     <Compile Include="Database\Player.cs" />
-    <Compile Include="Database\WeaponSkill.cs" />
     <Compile Include="Entities\AdvancedEntity.cs" />
     <Compile Include="Entities\Entity.cs" />
     <Compile Include="Entities\Monster.cs" />
@@ -139,36 +136,33 @@
     <Compile Include="Entities\Pet.cs" />
     <Compile Include="Entities\Player.cs" />
     <Compile Include="Entities\TerrainNPC.cs" />
-    <Compile Include="Games\CageMatch.cs" />
-    <Compile Include="Games\CityWar.cs" />
-    <Compile Include="Games\Tournament.cs" />
+    <Compile Include="Ini.cs" />
     <Compile Include="Item\FloorItem.cs" />
     <Compile Include="Item\Item.cs" />
-    <Compile Include="Item\ItemBonus.cs" />
     <Compile Include="Item\Handler.cs" />
-    <Compile Include="Item\ItemExt.cs" />
-    <Compile Include="Item\PrizeInfo.cs" />
-    <Compile Include="Item\ShopInfo.cs" />
     <Compile Include="Item\Use.cs" />
-    <Compile Include="Language.cs" />
+    <Compile Include="Map\MapObj.cs" />
+    <Compile Include="Script\ItemTask.cs" />
+    <Compile Include="Script\MonsterTask.cs" />
+    <Compile Include="StringExt.cs" />
+    <Compile Include="StrRes.cs" />
+    <Compile Include="LoggerExt.cs" />
+    <Compile Include="Map\MapData.cs" />
+    <Compile Include="Map\MapManager.cs" />
     <Compile Include="Math\Sector.cs" />
-    <Compile Include="Network\PackedString.cs" />
-    <Compile Include="Network\Socket\Event.cs" />
-    <Compile Include="Network\Socket\NetworkClient.cs" />
-    <Compile Include="Network\Socket\ServerSocket.cs" />
-    <Compile Include="Role\Magic.cs" />
+    <Compile Include="MessageBoard.cs" />
+    <Compile Include="NetworkMonitor.cs" />
+    <Compile Include="Network\Sockets\Event.cs" />
+    <Compile Include="Network\Sockets\TcpSocket.cs" />
+    <Compile Include="Network\Sockets\TcpServer.cs" />
+    <Compile Include="Network\StringPacker.cs" />
+    <Compile Include="Magic.cs" />
     <Compile Include="Map\GameMap.cs" />
-    <Compile Include="Map\Map.cs" />
     <Compile Include="Math\Battle\MvP.cs" />
     <Compile Include="Math\Battle\PvE.cs" />
     <Compile Include="Math\Battle\PvM.cs" />
     <Compile Include="Math\Stats\LevelStats.cs" />
-    <Compile Include="Network\MsgAccountExt.cs" />
-    <Compile Include="Network\MsgActionExt.cs" />
-    <Compile Include="Network\MsgDice.cs" />
     <Compile Include="Network\MsgPetInfo.cs" />
-    <Compile Include="Network\MsgBless.cs" />
-    <Compile Include="Network\MsgBlessInfo.cs" />
     <Compile Include="Network\MsgDataArray.cs" />
     <Compile Include="Network\MsgDialog.cs" />
     <Compile Include="Network\MsgFlushExp.cs" />
@@ -184,35 +178,30 @@
     <Compile Include="Network\MsgSyndicate.cs" />
     <Compile Include="Network\MsgSynInfo.cs" />
     <Compile Include="Network\MsgSynMemberInfo.cs" />
+    <Compile Include="SafeRandom.cs" />
     <Compile Include="Screen.cs" />
     <Compile Include="Math\Battle\PvP.cs" />
     <Compile Include="Math\Stats\EquipStats.cs" />
-    <Compile Include="Math\Stats\HitPoints.cs" />
-    <Compile Include="Math\Stats\MagicPoints.cs" />
     <Compile Include="Math\MyMath.cs" />
-    <Compile Include="Math\Stats\Potency.cs" />
-    <Compile Include="Network\MsgForge.cs" />
     <Compile Include="Network\MsgInteract.cs" />
     <Compile Include="Network\MsgMagicEffect.cs" />
     <Compile Include="Network\MsgMagicInfo.cs" />
     <Compile Include="Network\Msg.cs" />
     <Compile Include="Network\MsgAction.cs" />
     <Compile Include="Network\MsgAllot.cs" />
-    <Compile Include="Network\MsgBroadcast.cs" />
     <Compile Include="Network\MsgConnect.cs" />
     <Compile Include="Network\MsgItem.cs" />
     <Compile Include="Network\MsgItemInfo.cs" />
     <Compile Include="Network\MsgMapInfo.cs" />
     <Compile Include="Network\MsgMapItem.cs" />
     <Compile Include="Network\MsgName.cs" />
-    <Compile Include="Network\MsgNoble.cs" />
     <Compile Include="Network\MsgNpcInfo.cs" />
     <Compile Include="Network\MsgPlayer.cs" />
     <Compile Include="Network\MsgRegister.cs" />
     <Compile Include="Network\MsgTeamMember.cs" />
     <Compile Include="Network\MsgTick.cs" />
     <Compile Include="Network\MsgTrade.cs" />
-    <Compile Include="Network\MsgUnknow1029.cs" />
+    <Compile Include="Network\Msg1029.cs" />
     <Compile Include="Network\MsgUserAttrib.cs" />
     <Compile Include="Network\MsgUserInfo.cs" />
     <Compile Include="Network\MsgTalk.cs" />
@@ -220,39 +209,35 @@
     <Compile Include="Network\MsgWeaponSkill.cs" />
     <Compile Include="Network\MsgWeather.cs" />
     <Compile Include="Network\NetworkDef.cs" />
-    <Compile Include="Role\Nobility.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Script\Handler.cs" />
-    <Compile Include="Extensions\IniExt.cs" />
-    <Compile Include="Script\KCOSS.cs" />
-    <Compile Include="Script\KCS.cs" />
-    <Compile Include="Script\Logik. Conquer Script.cs" />
+    <Compile Include="Script\NpcTask.cs" />
+    <Compile Include="Script\Task.cs" />
+    <Compile Include="Script\TaskHandler.cs" />
+    <Compile Include="Security\Cryptography\TqCipher.cs" />
     <Compile Include="Server.cs" />
-    <Compile Include="Syndicate\Member.cs" />
-    <Compile Include="Syndicate\Info.cs" />
-    <Compile Include="Syndicate\Syndicate.cs" />
-    <Compile Include="Threads\Player.cs" />
-    <Compile Include="Threads\Floor.cs" />
+    <Compile Include="Syndicate.cs" />
+    <Compile Include="Workers\WorldThread.cs" />
+    <Compile Include="Workers\Generator.cs" />
+    <Compile Include="Workers\ItemDestroyer.cs" />
     <Compile Include="Generator.cs" />
-    <Compile Include="Threads\Item.cs" />
-    <Compile Include="Threads\Maintenance.cs" />
-    <Compile Include="Threads\NetworkIO.cs" />
-    <Compile Include="Threads\General.cs" />
-    <Compile Include="Threads\Syn.cs" />
+    <Compile Include="Workers\MaintenanceSystem.cs" />
+    <Compile Include="Workers\NetworkIO.cs" />
     <Compile Include="Role\Deal.cs" />
-    <Compile Include="Role\WeaponSkill.cs" />
+    <Compile Include="WeaponSkill.cs" />
+    <Compile Include="Workers\ServiceEvents.cs" />
     <Compile Include="World.cs" />
     <Compile Include="Role\Team.cs" />
     <Compile Include="Network\MsgTeam.cs" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="Features.txt" />
+    <Content Include="DoMetempsychosis.txt" />
     <Content Include="Logik.ico" />
-    <Content Include="Network\MsgTalk.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="app.config" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">

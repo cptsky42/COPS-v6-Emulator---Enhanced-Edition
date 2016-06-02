@@ -1,0 +1,622 @@
+﻿        #region Metempsychosis / Skills to keep logic
+        private static readonly List<UInt16> METEMPSYCHOSIS_SKILLS_ALWAYS_KEPT = new List<UInt16>()
+        {
+            1000, 1005,
+            1045, 1046,
+            1220, 1260, 1290, 5010, 5020, 5030, 5040, 5050, 7010, 7020,
+            1350, 1360, 3321,
+            1380, 1385, 1390, 1395, 1400, 1405, 1410,
+            4000, 4010, 4020, 4030, 4040, 4050, 4060, 4070
+        };
+
+        private static readonly Dictionary<Byte, Dictionary<Byte, List<UInt16>>> METEMPSYCHOSIS_1_SKILLS_TO_KEEP_PER_JOBS = new Dictionary<byte, Dictionary<byte, List<ushort>>>
+        {
+            { 
+                // Trojan
+                15, new Dictionary<Byte, List<UInt16>>
+                {
+                    { 21, new List<UInt16> { 1110, 1190, 1270 } },
+                    { 41, new List<UInt16> { 1110, 1190, 1270 } },
+                    { 132, new List<UInt16> { 1110, 1190, 1270 } },
+                    { 142, new List<UInt16> { 1110, 1190, 1270 } },
+                }
+            },
+            {
+                // Warrior
+                25, new Dictionary<Byte, List<UInt16>>
+                {
+                    { 11, new List<UInt16> { 1040, 1320 } },
+                    { 41, new List<UInt16> { 1020, 1040 } },
+                    { 132, new List<UInt16> { 1020, 1025, 1040 } },
+                    { 142, new List<UInt16> { 1020, 1040 } },
+                }
+            },
+            {
+                // Water Taoist
+                135, new Dictionary<Byte, List<UInt16>>
+                {
+                    { 11, new List<UInt16> { 1000, 1005, 1085, 1090, 1095, 1195, 1280 } },
+                    { 21, new List<UInt16> { 1000, 1005, 1085, 1090, 1095, 1195, 1280 } },
+                    { 41, new List<UInt16> { 1000, 1005, 1075, 1090, 1095, 1195, 1280 } },
+                    { 142, new List<UInt16> { 1000, 1001, 1005, 1050, 1055, 1075, 1175, 1195, 1280 } },
+                }
+            },
+            {
+                // Fire Taoist
+                145, new Dictionary<Byte, List<UInt16>>
+                {
+                    { 11, new List<UInt16> { 1000, 1001, 1005, 1195 } },
+                    { 21, new List<UInt16> { 1000, 1001, 1005, 1195 } },
+                    { 41, new List<UInt16> { 1000, 1001, 1005, 1195 } },
+                    { 132, new List<UInt16> { 1000, 1001, 1005, 1120, 1195 } },
+                }
+            },
+        };
+
+        private static readonly Dictionary<Byte, Dictionary<Byte, Dictionary<Byte, List<UInt16>>>> METEMPSYCHOSIS_2_SKILLS_TO_KEEP_PER_JOBS = new Dictionary<Byte, Dictionary<Byte, Dictionary<Byte, List<UInt16>>>>
+        {
+            { 
+                // Trojan
+                15, new Dictionary<Byte, Dictionary<Byte, List<UInt16>>>
+                {
+                    {
+                        15, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 21, new List<UInt16> { 1110, 1190, 1270, 3050 } },
+                            { 41, new List<UInt16> { 1110, 1190, 1270, 3050 } },
+                            { 132, new List<UInt16> { 1110, 1190, 1270, 3050 } },
+                            { 142, new List<UInt16> { 1110, 1190, 1270, 3050 } },
+                        }
+                    },
+                    {
+                        25, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1110, 5100, 1190, 1270, 1015, 1040, 1320 } },
+                            { 21, new List<UInt16> { 1110, 1270, 1190 } },
+                            { 41, new List<UInt16> { 1110, 1270, 1190, 1020, 1040, 5100 } },
+                            { 132, new List<UInt16> { 1110, 1270, 1190, 1020, 1040, 5100, 1025 } },
+                            { 142, new List<UInt16> { 1110, 1270, 1190, 1020, 1040, 5100 } },
+                        }
+                    },
+                    {
+                        45, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1110, 1270, 1190, 5002 } },
+                            { 21, new List<UInt16> { 1110, 1270, 1190, 5002 } },
+                            { 41, new List<UInt16> { 1110, 1270, 1190, 5000 } },
+                            { 132, new List<UInt16> { 1110, 1270, 1190, 5002 } },
+                            { 142, new List<UInt16> { 1110, 1270, 1190, 5002 } },
+                        }
+                    },
+                    {
+                        135, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1270, 1005, 1085, 1090, 1095, 1195 } },
+                            { 21, new List<UInt16> { 1190, 1110, 1270, 1005, 1085, 1090, 1095, 1195 } },
+                            { 41, new List<UInt16> { 1190, 1110, 1270, 1005, 1075, 1090, 1095, 1195 } },
+                            { 132, new List<UInt16> { 1190, 1110, 1270, 3090 } },
+                            { 142, new List<UInt16> { 1190, 1110, 1270, 1050, 1075, 1175, 1170 } },
+                        }
+                    },
+                    {
+                        145, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1270, 1000, 1001, 1005, 1195 } },
+                            { 21, new List<UInt16> { 1270, 1000, 1001, 1005, 1195 } },
+                            { 41, new List<UInt16> { 1190, 1110, 1270, 1000, 1001, 1005, 1195 } },
+                            { 132, new List<UInt16> { 1190, 1110, 1270, 1120 } },
+                            { 142, new List<UInt16> { 1190, 1110, 1270, 3080 } },
+                        }
+                    },
+                }
+            },
+            { 
+                // Warrior
+                25, new Dictionary<Byte, Dictionary<Byte, List<UInt16>>>
+                {
+                    {
+                        15, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1320, 1040, 3050 } },
+                            { 21, new List<UInt16> { 1270, 1190, 1110 } },
+                            { 41, new List<UInt16> { 1270, 1190, 1110, 1040, 1320 } },
+                            { 132, new List<UInt16> { 1270, 1190, 1110, 1040, 1320 } },
+                            { 142, new List<UInt16> { 1270, 1190, 1110, 1040, 1320 } },
+                        }
+                    },
+                    {
+                        25, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1320, 1015, 1040 } },
+                            { 41, new List<UInt16> { 1020, 1040 } },
+                            { 132, new List<UInt16> { 1020, 1040, 1025 } },
+                            { 142, new List<UInt16> { 1020, 1040 } },
+                        }
+                    },
+                    {
+                        45, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1040, 5002 } },
+                            { 21, new List<UInt16> { 5002 } },
+                            { 41, new List<UInt16> { 5000 } },
+                            { 132, new List<UInt16> { 1020, 1040, 5002 } },
+                            { 142, new List<UInt16> { 1020, 1040, 5002 } },
+                        }
+                    },
+                    {
+                        135, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 1280, 1350, 1040 } },
+                            { 21, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 1280, 1350, 1040 } },
+                            { 41, new List<UInt16> { 1005, 1090, 1095, 1195, 1280, 1350, 1040, 1075, 1020 } },
+                            { 132, new List<UInt16> { 1020, 1025, 1040, 1280, 1350, 3090 } },
+                            { 142, new List<UInt16> { 1020, 1280, 1350, 1040, 1050, 1055, 1175, 1075 } },
+                        }
+                    },
+                    {
+                        145, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1005, 1000, 1001, 1195, 1040 } },
+                            { 21, new List<UInt16> { 1005, 1000, 1001, 1195 } },
+                            { 41, new List<UInt16> { 1005, 1000, 1001, 1195, 1040, 1020 } },
+                            { 132, new List<UInt16> { 1020, 1040, 3090 } },
+                            { 142, new List<UInt16> { 1020, 1040, 3080 } },
+                        }
+                    },
+                }
+            },
+            { 
+                // Archer
+                45, new Dictionary<Byte, Dictionary<Byte, List<UInt16>>>
+                {
+                    {
+                        15, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 3050, 5002 } },
+                            { 21, new List<UInt16> { 1110, 5002, 1190, 1270 } },
+                            { 41, new List<UInt16> { 1110, 5002, 1190, 1270 } },
+                            { 132, new List<UInt16> { 1110, 5002, 1190, 1270 } },
+                            { 142, new List<UInt16> { 1110, 5002, 1190, 1270 } },
+                        }
+                    },
+                    {
+                        25, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 5002, 1015, 1040, 1320 } },
+                            { 21, new List<UInt16> { 5002 } },
+                            { 41, new List<UInt16> { 5002, 1020, 1040 } },
+                            { 132, new List<UInt16> { 5002, 1020, 1040 } },
+                            { 142, new List<UInt16> { 5002, 1020, 1040 } },
+                        }
+                    },
+                    {
+                        45, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 5002, 5000 } },
+                            { 21, new List<UInt16> { 5002, 5000 } },
+                            { 132, new List<UInt16> { 5002, 5000 } },
+                            { 142, new List<UInt16> { 5002, 5000 } },
+                        }
+                    },
+                    {
+                        135, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1085, 1005, 1090, 1095, 5002, 1195, 1280, 1350 } },
+                            { 21, new List<UInt16> { 1085, 1005, 1090, 1095, 5002, 1195, 1280, 1350 } },
+                            { 41, new List<UInt16> { 1075, 1005, 1090, 1095, 5002, 1195, 1280, 1350 } },
+                            { 132, new List<UInt16> { 5002, 1280, 1350, 3090 } },
+                            { 142, new List<UInt16> { 5002, 1075, 1350, 3090, 1050, 1175, 1055 } },
+                        }
+                    },
+                    {
+                        145, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 5002, 1000, 1001, 1005, 1195 } },
+                            { 21, new List<UInt16> { 5002, 1000, 1001, 1005, 1195 } },
+                            { 41, new List<UInt16> { 5002, 1000, 1001, 1005, 1195 } },
+                            { 132, new List<UInt16> { 5002, 1120 } },
+                            { 142, new List<UInt16> { 5002, 3080 } },
+                        }
+                    },
+                }
+            },
+            { 
+                // Water Taoist
+                135, new Dictionary<Byte, Dictionary<Byte, List<UInt16>>>
+                {
+                    {
+                        15, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 3050 } },
+                            { 21, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 1190, 1110, 1270 } },
+                            { 41, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 1190, 1110, 1270 } },
+                            { 132, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 1190, 1110, 1270 } },
+                            { 142, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 1190, 1110, 1270 } },
+                        }
+                    },
+                    {
+                        25, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 1015, 1040, 1320 } },
+                            { 21, new List<UInt16> { 1005, 1085, 1090, 1095, 1195 } },
+                            { 41, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 1040, 1020 } },
+                            { 132, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 1040, 1020, 1025 } },
+                            { 142, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 1040, 1020 } },
+                        }
+                    },
+                    {
+                        45, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1005, 1065, 1090, 1095, 1195, 5002 } },
+                            { 21, new List<UInt16> { 1005, 1065, 1090, 1095, 1195, 5002 } },
+                            { 41, new List<UInt16> { 1005, 1065, 1090, 1095, 1195, 5002, 5000 } },
+                            { 132, new List<UInt16> { 1005, 1065, 1090, 1095, 1195, 5002 } },
+                            { 142, new List<UInt16> { 1005, 1065, 1090, 1095, 1195, 5002 } },
+                        }
+                    },
+                    {
+                        135, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 3090 } },
+                            { 21, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 3090 } },
+                            { 41, new List<UInt16> { 1005, 1085, 1090, 1095, 1195, 3090 } },
+                            { 142, new List<UInt16> { 3090, 1050, 1055, 1175, 1075 } },
+                        }
+                    },
+                    {
+                        145, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1055, 1175, 1050, 1000, 1001, 1005, 1075, 1195 } },
+                            { 21, new List<UInt16> { 1055, 1175, 1050, 1000, 1001, 1005, 1075, 1195 } },
+                            { 41, new List<UInt16> { 1055, 1175, 1050, 1000, 1001, 1005, 1075, 1195 } },
+                            { 132, new List<UInt16> { 1050, 1055, 1175, 1075, 1120 } },
+                            { 142, new List<UInt16> { 1050, 1055, 1175, 1075, 3080 } },
+                        }
+                    },
+                }
+            },
+            { 
+                // Fire Taoist
+                145, new Dictionary<Byte, Dictionary<Byte, List<UInt16>>>
+                {
+                    {
+                        15, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1000, 1001, 1005, 1195, 3050 } },
+                            { 21, new List<UInt16> { 1000, 1001, 1005, 1195, 1110, 1190 } },
+                            { 41, new List<UInt16> { 1000, 1001, 1005, 1195, 1110, 1190 } },
+                            { 132, new List<UInt16> { 1000, 1001, 1005, 1195, 1110, 1190 } },
+                            { 142, new List<UInt16> { 1000, 1001, 1005, 1195, 1110, 1190 } },
+                        }
+                    },
+                    {
+                        25, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1000, 1001, 1005, 1195, 1040, 1015, 1320 } },
+                            { 21, new List<UInt16> { 1000, 1001, 1005, 1195 } },
+                            { 41, new List<UInt16> { 1000, 1001, 1005, 1195, 1040, 1020 } },
+                            { 132, new List<UInt16> { 1000, 1001, 1005, 1195, 1040, 1020, 1025 } },
+                            { 142, new List<UInt16> { 1020, 1040 } },
+                        }
+                    },
+                    {
+                        45, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1000, 1001, 1005, 1195, 5002 } },
+                            { 21, new List<UInt16> { 1000, 1001, 1005, 1195, 5002 } },
+                            { 41, new List<UInt16> { 1000, 1001, 1005, 1195, 5002, 5000 } },
+                            { 132, new List<UInt16> { 1000, 1001, 1005, 1195, 5002 } },
+                            { 142, new List<UInt16> { 1000, 1001, 1005, 1195, 5002 } },
+                        }
+                    },
+                    {
+                        135, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1005, 1090, 1095, 1195, 1095 } },
+                            { 21, new List<UInt16> { 1005, 1090, 1095, 1195, 1095 } },
+                            { 41, new List<UInt16> { 1005, 1090, 1095, 1195, 1075 } },
+                            { 132, new List<UInt16> { 3090, 1120 } },
+                            { 142, new List<UInt16> { 1055, 1050, 1175, 1075 } },
+                        }
+                    },
+                    {
+                        145, new Dictionary<Byte, List<UInt16>>
+                        {
+                            { 11, new List<UInt16> { 1000, 1001, 1005, 1195, 3080 } },
+                            { 21, new List<UInt16> { 1000, 1001, 1005, 1195, 3080 } },
+                            { 41, new List<UInt16> { 1000, 1001, 1005, 1195, 3080 } },
+                            { 132, new List<UInt16> { 3080, 1120 } },
+                        }
+                    },
+                }
+            }
+        };
+        #endregion
+
+        public void DoMetempsychosis(Byte NewProfession, Boolean Bless)
+        {
+            Metempsychosis++;
+            if (Metempsychosis == 1)
+            {
+                FirstLevel = (Byte)Level;
+                FirstProfession = Profession;
+            }
+            else if (Metempsychosis == 2)
+            {
+                SecondLevel = (Byte)Level;
+                SecondProfession = Profession;
+            }
+            Profession = NewProfession;
+
+            Level = 15;
+            Exp = 0;
+            AutoAllot = false;
+
+            MyMath.GetLevelStats(this);
+
+            foreach (WeaponSkill Skill in mWeaponSkills.Values)
+            {
+                Skill.OldLevel = Skill.Level;
+                if (Skill.OldLevel < 20)
+                    if (Skill.Exp >= Database.AllWeaponSkillExp[Skill.Level] / 2)
+                        Skill.OldLevel++;
+
+                Skill.Unlearn = true;
+
+                Skill.Level = 0;
+                Skill.Exp = 0;
+
+                Send(new MsgAction(this, Skill.Type, MsgAction.Action.DropSkill));
+            }
+
+            List<Magic> SkillToDel = new List<Magic>();
+            if (Metempsychosis == 1)
+            {
+                bool keepAll = false;
+                if ((FirstProfession == 15 && NewProfession == 11) ||
+                    (FirstProfession == 25 && NewProfession == 21) ||
+                    (FirstProfession == 45 && NewProfession == 41) ||
+                    (FirstProfession == 135 && NewProfession == 132) ||
+                    (FirstProfession == 145 && NewProfession == 142))
+                    keepAll = true;
+
+                // Check skills to keep/delete
+                foreach (Magic skill in mMagics.Values)
+                {
+                    Boolean keep = false;
+
+                    if (METEMPSYCHOSIS_1_SKILLS_TO_KEEP_PER_JOBS[FirstProfession][NewProfession].Contains(skill.Type))
+                        keep = true;
+
+                    if (METEMPSYCHOSIS_SKILLS_ALWAYS_KEPT.Contains(skill.Type))
+                        keep = true;
+
+                    if (keepAll)
+                        keep = true;
+
+                    if (keep)
+                    {
+                        Magic.Info Info;
+                        if (Database.AllMagics.TryGetValue(skill.Type * 10 + skill.Level, out Info))
+                        {
+                            skill.OldLevel = skill.Level;
+                            if (skill.Exp >= Info.ReqExp / 2)
+                                if (Database.AllMagics.ContainsKey(skill.Type * 10 + skill.Level + 1))
+                                    skill.OldLevel++;
+                        }
+
+                        skill.Level = 0;
+                        skill.Exp = 0;
+
+                        Send(new MsgMagicInfo(skill));
+                    }
+                    else
+                        SkillToDel.Add(skill);
+                }
+
+                //Delete some skills...
+                Magic[] Skills = SkillToDel.ToArray();
+                for (Int32 i = 0; i < Skills.Length; i++)
+                    DropMagic(Skills[i], true);
+                Skills = null;
+
+                //New Skill(s)
+                if (FirstProfession == 15)
+                {
+                    if (NewProfession == 11)
+                        AwardMagic(Magic.Create(this, 3050, 0), true); //CruelShade
+                    else if (NewProfession == 21)
+                        AwardMagic(Magic.Create(this, 5100, 0), true); //IronShirt
+                }
+                else if (FirstProfession == 45)
+                {
+                    if (NewProfession == 41)
+                        AwardMagic(Magic.Create(this, 5000, 0), true); //FreezingArrow
+                    else
+                        AwardMagic(Magic.Create(this, 5002, 0), true); //Poison
+                }
+                else if (FirstProfession == 135)
+                {
+                    if (NewProfession == 132)
+                        AwardMagic(Magic.Create(this, 3090, 0), true); //Pervade
+                }
+                else if (FirstProfession == 145)
+                {
+                    if (NewProfession == 142)
+                        AwardMagic(Magic.Create(this, 3080, 0), true); //Dodge
+                }
+            }
+            else if (Metempsychosis == 2)
+            {
+                bool keepAll = false;
+
+                if ((FirstProfession == 15 && SecondProfession == 15 && NewProfession == 11) ||
+                    (FirstProfession == 25 && SecondProfession == 25 && NewProfession == 21) ||
+                    (FirstProfession == 45 && SecondProfession == 45 && NewProfession == 41) ||
+                    (FirstProfession == 135 && SecondProfession == 135 && NewProfession == 132) ||
+                    (FirstProfession == 145 && SecondProfession == 145 && NewProfession == 142))
+                    keepAll = true;
+
+                foreach (Magic skill in mMagics.Values)
+                {
+                    Boolean keep = false;
+
+                    if (METEMPSYCHOSIS_2_SKILLS_TO_KEEP_PER_JOBS[FirstProfession][SecondProfession][NewProfession].Contains(skill.Type))
+                        keep = true;
+
+                    if (METEMPSYCHOSIS_SKILLS_ALWAYS_KEPT.Contains(skill.Type))
+                        keep = true;
+
+                    if (keepAll)
+                        keep = true;
+
+                    if (keep)
+                    {
+                        Magic.Info Info;
+                        if (Database.AllMagics.TryGetValue(skill.Type * 10 + skill.Level, out Info))
+                        {
+                            skill.OldLevel = skill.Level;
+                            if (skill.Exp >= Info.ReqExp / 2)
+                                if (Database.AllMagics.ContainsKey(skill.Type * 10 + skill.Level + 1))
+                                    skill.OldLevel++;
+                        }
+
+                        skill.Level = 0;
+                        skill.Exp = 0;
+
+                        Send(new MsgMagicInfo(skill));
+                    }
+                    else
+                        SkillToDel.Add(skill);
+                }
+
+                Magic[] Skills = SkillToDel.ToArray();
+                for (Int32 i = 0; i < Skills.Length; i++)
+                    DropMagic(Skills[i], true);
+                Skills = null;
+
+                //New Skill(s)
+                if (FirstProfession != 15 && SecondProfession == 15)
+                {
+                    if (NewProfession == 11)
+                        AwardMagic(Magic.Create(this, 3050, 0), true); //CruelShade
+                    else if (NewProfession == 21)
+                        AwardMagic(Magic.Create(this, 5100, 0), true); //IronShirt
+                }
+                else if (FirstProfession != 45 && SecondProfession == 45)
+                {
+                    if (NewProfession == 41)
+                        AwardMagic(Magic.Create(this, 5000, 0), true); //FreezingArrow
+                    else
+                        AwardMagic(Magic.Create(this, 5002, 0), true); //Poison
+                }
+                else if (FirstProfession != 135 && SecondProfession == 135)
+                {
+                    if (NewProfession == 132)
+                        AwardMagic(Magic.Create(this, 3090, 0), true); //Pervade
+                }
+                else if (FirstProfession != 145 && SecondProfession == 145)
+                {
+                    if (NewProfession == 142)
+                        AwardMagic(Magic.Create(this, 3080, 0), true); //Dodge
+                }
+                AwardMagic(Magic.Create(this, 9876, 0), true); //GodBlessing
+            }
+            else
+            {
+                foreach (Magic Skill in mMagics.Values)
+                {
+                    Magic.Info Info;
+                    if (Database.AllMagics.TryGetValue(Skill.Type * 10 + Skill.Level, out Info))
+                    {
+                        Skill.OldLevel = Skill.Level;
+                        if (Skill.Exp >= Info.ReqExp / 2)
+                            if (Database.AllMagics.ContainsKey(Skill.Type * 10 + Skill.Level + 1))
+                                Skill.OldLevel++;
+                    }
+
+                    Skill.Level = 0;
+                    Skill.Exp = 0;
+
+                    Send(new MsgMagicInfo(Skill));
+                }
+            }
+
+            for (Byte Pos = 1; Pos < 10; Pos++)
+            {
+                if (Pos == 7 || Pos == 9)
+                    continue;
+
+                Item Item = GetItemByPos(Pos);
+                if (Item == null)
+                    continue;
+
+                Int32 NewId = Item.GetBaseType();
+                if (NewId == Item.Type)
+                    continue;
+
+                Item.Type = NewId;
+                Item.CurDura = (UInt16)((Double)ItemHandler.GetMaxDura(NewId) * (Double)Item.CurDura / (Double)Item.MaxDura);
+                Item.MaxDura = ItemHandler.GetMaxDura(NewId);
+
+                UpdateItem(Item);
+            }
+
+            if (Bless)
+            {
+                List<Byte> ValidPos = new List<Byte>();
+
+                for (Byte Pos = 1; Pos < 10; Pos++)
+                {
+                    Item Item = GetItemByPos(Pos);
+                    if (Item == null)
+                        continue;
+
+                    if (Item.Bless != 0)
+                        continue;
+
+                    ValidPos.Add(Pos);
+                }
+
+                if (ValidPos.Count > 0)
+                {
+                    Byte Pos = ValidPos.ToArray()[MyMath.Generate(0, (ValidPos.Count - 1))];
+                    Item Item = GetItemByPos(Pos);
+
+                    if (Item != null && Item.Bless == 0)
+                    {
+                        Item.Bless = 1;
+                        UpdateItem(Item);
+                    }
+                }
+            }
+
+            CalcMaxHP();
+            CalcMaxMP();
+            MyMath.GetEquipStats(this);
+
+            CurHP = MaxHP;
+            CurMP = MaxMP;
+
+            Database.Save(this, true);
+
+            #region Update Attrib
+            Send(new MsgUserAttrib(this, Level, MsgUserAttrib.AttributeType.Level));
+            Send(new MsgUserAttrib(this, Profession, MsgUserAttrib.AttributeType.Profession));
+            Send(new MsgUserAttrib(this, (Int64)Exp, MsgUserAttrib.AttributeType.Exp));
+            Send(new MsgUserAttrib(this, Metempsychosis, MsgUserAttrib.AttributeType.Metempsychosis));
+            Send(new MsgUserAttrib(this, CurHP, MsgUserAttrib.AttributeType.Life));
+            Send(new MsgUserAttrib(this, CurMP, MsgUserAttrib.AttributeType.Mana));
+            Send(new MsgUserAttrib(this, Strength, MsgUserAttrib.AttributeType.Strength));
+            Send(new MsgUserAttrib(this, Agility, MsgUserAttrib.AttributeType.Agility));
+            Send(new MsgUserAttrib(this, Vitality, MsgUserAttrib.AttributeType.Vitality));
+            Send(new MsgUserAttrib(this, Spirit, MsgUserAttrib.AttributeType.Spirit));
+            Send(new MsgUserAttrib(this, AddPoints, MsgUserAttrib.AttributeType.AddPoints));
+
+            if (Team != null)
+            {
+                Team.BroadcastMsg(new MsgUserAttrib(this, CurHP, MsgUserAttrib.AttributeType.Life));
+                Team.BroadcastMsg(new MsgUserAttrib(this, MaxHP, (MsgUserAttrib.AttributeType.Life + 1)));
+            }
+            #endregion
+        }

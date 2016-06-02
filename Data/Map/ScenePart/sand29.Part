@@ -1,0 +1,12 @@
+AniFile=ani\MapScene.ani
+AniTitle=sand29.tga
+OffsetX=-192
+OffsetY=-330
+AniInterval=200
+Width=2
+Height=2
+Thick=280
+Cell[0,0]={1,0,280}
+Cell[1,0]={1,0,280}
+Cell[0,1]={1,0,280}
+Cell[1,1]={1,0,280}

@@ -1,0 +1,13 @@
+<service>
+  <id>cops_msgserver_force</id>
+  <name>COPS v6 - MsgServer</name>
+  <description>The game server of COPS v6.</description>
+  <executable>C:\COPS v6 Emulator\Test Server\ServiceStub.exe</executable>
+  <!-- <logpath>C:\...\Server\Log</logpath> -->
+  <!-- <logmode>roll</logmode> -->
+  <startargument>start</startargument>
+  <startargument>MsgServer64.exe</startargument>
+  <stopexecutable>C:\COPS v6 Emulator\Test Server\ServiceStub.exe</stopexecutable>
+  <stopargument>stop</stopargument>
+  <stopargument>Force</stopargument>
+</service>

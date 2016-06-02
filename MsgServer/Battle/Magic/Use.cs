@@ -1,1444 +1,795 @@
 ﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2011
-// * Logik. Project
+// * Copyright © 2011-2015
+// * COPS v6 Emulator
 
 using System;
 using System.Threading;
 using System.Collections.Generic;
 using COServer.Network;
 using COServer.Entities;
-using CO2_CORE_DLL.IO;
 
 namespace COServer
 {
     public partial class Battle
     {
-        public partial class Magic
+        public const Int32 MAX_TARGET_COUNT = 28;
+
+        public static void UseMagic(AdvancedEntity aAttacker, AdvancedEntity aTarget, UInt16 aTargetX, UInt16 aTargetY)
         {
-            #region Use(Player, AdvancedEntity, UInt16, UInt16)
-            public static void Use(Player Attacker, AdvancedEntity Target, UInt16 X, UInt16 Y)
+            try
             {
-                try
+                // a lot of logic depends on the fact that the attacker is a player...
+                Player attacker = aAttacker as Player;
+
+                if (!aAttacker.IsAlive())
+                    return;
+
+                if (aAttacker.IsPlayer())
                 {
-                    if (!Attacker.IsAlive())
-                        return;
-
-                    if (Attacker.MagicType == 8000 || Attacker.MagicType == 8001)
+                    if (attacker.MagicType == 8000 || attacker.MagicType == 8001)
                     {
-                        Item Arrow = Attacker.GetItemByPos(5);
-                        if (Arrow.Id / 10000 != 105)
+                        Item arrow = attacker.GetItemByPos(5);
+                        if (arrow.Type / 10000 != 105)
                             return;
 
-                        if (Attacker.MagicType == 8000)
-                            if (Arrow.CurDura < 5)
+                        if (attacker.MagicType == 8000)
+                            if (arrow.CurDura < 5)
                                 return;
 
-                        if (Attacker.MagicType == 8001)
-                            if (Arrow.CurDura < 3)
+                        if (attacker.MagicType == 8001)
+                            if (arrow.CurDura < 3)
                                 return;
                     }
+                }
 
-                    MagicType.Entry Info = new MagicType.Entry();
-                    if (!Database2.AllMagics.TryGetValue((Attacker.MagicType * 10) + Attacker.MagicLevel, out Info))
+                Magic.Info Info = new Magic.Info();
+                if (!Database.AllMagics.TryGetValue((aAttacker.MagicType * 10) + aAttacker.MagicLevel, out Info))
+                    return;
+
+                GameMap Map = aAttacker.Map;
+
+                if (aAttacker.IsPlayer() && Program.Debug)
+                {
+                    attacker.SendSysMsg(String.Format("Using magic skill {0} [sort={1}, power={2}, status={3}]",
+                        Info.Type, Info.Sort, Info.Power, Info.Status));
+                }
+
+                #region Fly | IsWing_Disable
+                if (Info.Type == 8002 || Info.Type == 8003)
+                    if (Map.IsWing_Disable())
+                        return;
+                #endregion
+
+                #region Use Mp/PP/Xp
+                if (aAttacker.IsPlayer())
+                {
+                    if (Info.UseMP != 0 && attacker.CurMP < Info.UseMP)
                         return;
 
-                    Map Map = null;
-                    if (!World.AllMaps.TryGetValue(Attacker.Map, out Map))
+                    if (Info.UseEP != 0 && attacker.Energy < Info.UseEP)
                         return;
 
-                    #region Fly | IsWing_Disable
-                    if (Info.MagicType == 8002 || Info.MagicType == 8003)
-                        if (Map.IsWing_Disable())
-                            return;
-                    #endregion
-
-                    #region Use Mp/PP/Xp
-                    if (Info.MpCost != 0 && Attacker.CurMP < Info.MpCost)
+                    if (Info.UseXP == Magic.TYPE_XPSKILL && attacker.XP < 100)
                         return;
 
-                    if (Info.UsePP != 0 && Attacker.Energy < Info.UsePP)
-                        return;
-
-                    if (Info.Xp == 1 && Attacker.XP < 100)
-                        return;
-
-                    if (Info.MpCost != 0 && Attacker.Map != 1039)
+                    if (Info.UseMP != 0 && attacker.Map.Id != 1039)
                     {
-                        Attacker.CurMP -= (UInt16)Info.MpCost;
-                        Attacker.Send(MsgUserAttrib.Create(Attacker, Attacker.CurMP, MsgUserAttrib.Type.Mana));
+                        attacker.CurMP -= (UInt16)Info.UseMP;
+                        attacker.Send(new MsgUserAttrib(attacker, attacker.CurMP, MsgUserAttrib.AttributeType.Mana));
                     }
 
-                    if (Info.UsePP != 0 && Attacker.Map != 1039)
+                    if (Info.UseEP != 0 && attacker.Map.Id != 1039)
                     {
-                        Attacker.Energy -= (Byte)Info.UsePP;
-                        Attacker.Send(MsgUserAttrib.Create(Attacker, Attacker.Energy, MsgUserAttrib.Type.Energy));
+                        attacker.Energy -= (Byte)Info.UseEP;
+                        attacker.Send(new MsgUserAttrib(attacker, attacker.Energy, MsgUserAttrib.AttributeType.Energy));
                     }
 
-                    if (Info.Xp == 1)
+                    if (Info.UseXP == Magic.TYPE_XPSKILL)
                     {
-                        Attacker.XP = 0;
-                        Attacker.DelFlag(Player.Flag.XPList);
-                        Attacker.Send(MsgUserAttrib.Create(Attacker, Attacker.XP, MsgUserAttrib.Type.XP));
-                        Attacker.Send(MsgUserAttrib.Create(Attacker, Attacker.Flags, MsgUserAttrib.Type.Flags));
+                        attacker.XP = 0;
+                        attacker.Send(new MsgUserAttrib(attacker, attacker.XP, MsgUserAttrib.AttributeType.XP));
+                        attacker.DetachStatus(Status.XpFull);
                     }
-                    #endregion
+                }
+                #endregion
 
-                    #region Intone
-                    if (Info.IntoneDuration > 0)
+                #region Intone
+                if (Info.IntoneDuration > 0)
+                {
+                    aAttacker.MagicIntone = true;
+                    // TODO implement intonation
+                    //Thread.Sleep((Int32)Info.IntoneDuration);
+
+                    if (!aAttacker.MagicIntone)
+                        return;
+
+                    aAttacker.MagicIntone = false;
+                }
+                #endregion
+
+                #region Potential targets
+                AdvancedEntity[] potential_targets = new AdvancedEntity[0];
+                if (aTarget == null || Info.Sort == MagicSort.RecoverSingleHP || Info.Sort == MagicSort.AttackRoundHP || Info.Sort == MagicSort.DispatchXP)
+                {
+                    switch (Info.Sort)
                     {
-                        Attacker.MagicIntone = true;
-                        //Thread.Sleep((Int32)Info.IntoneDuration);
-
-                        if (!Attacker.MagicIntone)
-                            return;
-
-                        Attacker.MagicIntone = false;
-                    }
-                    #endregion
-
-                    #region Potential targets
-                    AdvancedEntity[] Entities;
-                    if (Target == null || Info.ActionSort == 2 || Info.ActionSort == 5 || Info.ActionSort == 11)
-                    {
-                        switch (Info.ActionSort)
-                        {
-                            case 2:
+                        case MagicSort.RecoverSingleHP:
+                            {
+                                // team healing...
+                                if (Info.Type == 1055 || Info.Type == 1170)
                                 {
-                                    //Team healing...
-                                    if (Info.MagicType != 1055 && Info.MagicType != 1170 || (Target.IsPlayer() && (Target as Player).Team == null))
+                                    if ((aTarget.IsPlayer() && (aTarget as Player).Team == null))
                                     {
-                                        Entities = new AdvancedEntity[] { Target };
+                                        potential_targets = new AdvancedEntity[] { aTarget };
                                         break;
                                     }
-                                    Entities = Battle.Magic.GetTargetsForType11(Attacker);
-                                    break;
+
+                                    if (aAttacker.IsPlayer()) // only a player can have a team...
+                                        potential_targets = Battle.GetTargetsForType11(attacker);
                                 }
-                            case 4:
-                                Entities = Battle.Magic.GetTargetsForType04(Attacker, X, Y, Info.Distance, Info.Range);
+                                else
+                                    potential_targets = new AdvancedEntity[] { aTarget };
+
                                 break;
-                            case 5:
+                            }
+                        case MagicSort.AttackSectorHP:
+                            potential_targets = Battle.GetTargetsForType04(aAttacker, aTargetX, aTargetY, Info.Distance, Info.Range);
+                            break;
+                        case MagicSort.AttackRoundHP:
+                            {
+                                if (aTarget != null)
                                 {
-                                    if (Target != null)
-                                    {
-                                        X = Target.X;
-                                        Y = Target.Y;
-                                        Target = null;
-                                    }
-                                    Entities = Battle.Magic.GetTargetsForType05(Attacker, X, Y, Info.Range);
-                                    break;
+                                    aTargetX = aTarget.X;
+                                    aTargetY = aTarget.Y;
+                                    aTarget = null;
                                 }
-                            case 11:
-                                Entities = Battle.Magic.GetTargetsForType11(Attacker);
+                                potential_targets = Battle.GetTargetsForType05(aAttacker, aTargetX, aTargetY, Info.Range);
                                 break;
-                            case 14:
-                                Entities = Battle.Magic.GetTargetsForType14(Attacker, X, Y, Info.Range);
+                            }
+                        case MagicSort.DispatchXP:
+                            {
+                                if (aAttacker.IsPlayer()) // only a player can have a team...
+                                    potential_targets = Battle.GetTargetsForType11(attacker);
                                 break;
-                            default:
-                                Entities = new AdvancedEntity[0];
+                            }
+                        case MagicSort.Line:
+                            {
+                                potential_targets = Battle.GetTargetsForType14(aAttacker, aTargetX, aTargetY, Info.Range);
                                 break;
+                            }
+                    }
+                }
+                else
+                    potential_targets = new AdvancedEntity[] { aTarget };
+                #endregion
+
+                Dictionary<AdvancedEntity, Int32> targets = new Dictionary<AdvancedEntity, Int32>(potential_targets.Length);
+                UInt32 Exp = 0;
+                UInt32 MagicExp = 0;
+
+                foreach (AdvancedEntity entity in potential_targets)
+                {
+                    Boolean Reflected = false;
+                    Player Player = entity as Player;
+                    Monster Monster = entity as Monster;
+                    TerrainNPC Npc = entity as TerrainNPC;
+
+                    // entity == NULL || entity isn't alive and not using pray
+                    if (entity == null || (!entity.IsAlive() && Info.Sort != MagicSort.RecoverSingleStatus))
+                        continue;
+
+                    if (aAttacker.Map != entity.Map)
+                        continue;
+
+                    if (!MyMath.CanSee(aAttacker.X, aAttacker.Y, entity.X, entity.Y, (Int32)Info.Distance))
+                        continue;
+
+                    if (Info.Target == 0 && aAttacker.UniqId == entity.UniqId)
+                        continue;
+                    else if (Info.Target == 2 && aAttacker.UniqId != entity.UniqId)
+                        continue;
+                    else if (Info.Target == 4 && aAttacker.UniqId == entity.UniqId)
+                        continue;
+                    else if (Info.Target == 8 && aAttacker.UniqId == entity.UniqId
+                        && !((Info.Type - (Info.Type % 1000)) == 10000))
+                        continue;
+
+                    if (Info.Ground && entity.IsPlayer()) // Ground skill
+                    {
+                        if (Player.IsFlying())
+                            continue;
+                    }
+
+                    #region Blue name (Crime)
+                    if (aAttacker.IsPlayer() && Info.Crime) // Is a crime to use the skill
+                    {
+                        if (entity.IsPlayer())
+                        {
+                            if (!CanAttack(attacker, Player))
+                                continue;
+
+                            if (!Map.IsPkField() && !Map.IsSynMap() && !Map.IsPrisonMap())
+                            {
+                                if (!Player.IsCriminal())
+                                    attacker.AttachStatus(Status.Crime, 25000);
+                            }
+                        }
+                        else if (entity.IsMonster())
+                        {
+                            if (!CanAttack(attacker, Monster))
+                                continue;
+
+                            if ((Byte)(Monster.Id / 100) == 9) //Is a guard
+                                attacker.AttachStatus(Status.Crime, 25000);
                         }
                     }
-                    else
-                        Entities = new AdvancedEntity[] { Target };
                     #endregion
 
-                    Dictionary<AdvancedEntity, Int32> Targets = new Dictionary<AdvancedEntity, Int32>(Entities.Length);
-                    Int32 Exp = 0;
-                    Int32 MagicExp = 0;
-
-                    foreach (AdvancedEntity Entity in Entities)
+                    #region Get base damage
+                    Int32 damage = 0;
+                    if (Info.Sort == MagicSort.RecoverSingleHP || Info.Sort == MagicSort.AttackSingleStatus || Info.Sort == MagicSort.DispatchXP || Info.Sort == MagicSort.Transform || Info.Sort == MagicSort.AddMana)
+                        damage = (Int32)Info.Power;
+                    else if (Info.Sort == MagicSort.RecoverSingleStatus)
+                        damage = entity.MaxHP;
+                    else if (Info.Sort == MagicSort.DecLife)
+                        damage = (Int32)(entity.CurHP * ((Double)(Info.Power - 30000) / 100.00));
+                    else
                     {
-                        Boolean Reflected = false;
-                        Player Player = Entity as Player;
-                        Monster Monster = Entity as Monster;
-                        TerrainNPC Npc = Entity as TerrainNPC;
-
-                        //Entity == NULL || Entity isn't alive and not using pray
-                        if (Entity == null || (!Entity.IsAlive() && Info.ActionSort != 7))
-                            continue;
-
-                        if (Attacker.Map != Entity.Map)
-                            continue;
-
-                        if (!MyMath.CanSee(Attacker.X, Attacker.Y, Entity.X, Entity.Y, (Int32)Info.Distance))
-                            continue;
-
-                        if (Info.Target == 0 && Attacker.UniqId == Entity.UniqId)
-                            continue;
-                        else if (Info.Target == 2 && Attacker.UniqId != Entity.UniqId)
-                            continue;
-                        else if (Info.Target == 4 && Attacker.UniqId == Entity.UniqId)
-                            continue;
-                        else if (Info.Target == 8 && Attacker.UniqId == Entity.UniqId
-                            && !((Info.MagicType - (Info.MagicType % 1000)) == 10000))
-                            continue;
-
-                        if (Info.Ground == 1 && Entity.IsPlayer()) //Ground skill
+                        if (aAttacker.IsPlayer())
                         {
-                            if (Player.ContainsFlag(Player.Flag.Flying))
-                                continue;
+                            if (entity.IsPlayer())
+                                damage = MyMath.GetDamagePlayer2Player(attacker, Player, attacker.MagicType, attacker.MagicLevel);
+                            else if (entity.IsMonster())
+                                damage = MyMath.GetDamagePlayer2Monster(attacker, Monster, attacker.MagicType, attacker.MagicLevel);
+                            else if (entity.IsTerrainNPC())
+                                damage = MyMath.GetDamagePlayer2Environment(attacker, Npc, attacker.MagicType, attacker.MagicLevel);
                         }
-
-                        #region Blue name (Crime)
-                        if (Info.Crime == 1) //Is a crime to use the skill
-                        {
-                            if (Entity.IsPlayer())
-                            {
-                                if (!CanAttack(Attacker, Player))
-                                    continue;
-
-                                if (!Map.IsPkField() && !Map.IsSynMap() && !Map.IsPrisonMap())
-                                {
-                                    if (!Player.ContainsFlag(Player.Flag.BlackName) && !Player.ContainsFlag(Player.Flag.Flashing))
-                                    {
-                                        if (!Attacker.ContainsFlag(Player.Flag.Flashing))
-                                        {
-                                            Attacker.AddFlag(Player.Flag.Flashing);
-                                            World.BroadcastRoomMsg(Attacker, MsgUserAttrib.Create(Attacker, Attacker.Flags, MsgUserAttrib.Type.Flags), true);
-                                        }
-                                        Attacker.BlueNameEndTime = Environment.TickCount + 25000;
-                                    }
-                                }
-                            }
-                            else if (Entity.IsMonster())
-                            {
-                                if (!CanAttack(Attacker, Monster))
-                                    continue;
-
-                                if ((Byte)(Monster.Id / 100) == 9) //Is a guard
-                                {
-                                    if (!Attacker.ContainsFlag(Player.Flag.Flashing))
-                                    {
-                                        Attacker.AddFlag(Player.Flag.Flashing);
-                                        World.BroadcastRoomMsg(Attacker, MsgUserAttrib.Create(Attacker, Attacker.Flags, MsgUserAttrib.Type.Flags), true);
-                                    }
-                                    Attacker.BlueNameEndTime = Environment.TickCount + 25000;
-                                }
-                            }
-                        }
-                        #endregion
-
-                        #region Get base damage
-                        Int32 Damage = 0;
-                        if (Info.ActionSort == 2 || Info.ActionSort == 6 || Info.ActionSort == 11 || Info.ActionSort == 19 || Info.ActionSort == 20)
-                            Damage = (Int32)Info.Power;
-                        else if (Info.ActionSort == 7)
-                            Damage = Entity.MaxHP;
-                        else if (Info.ActionSort == 26)
-                            Damage = (Int32)(Entity.CurHP * ((Double)(Info.Power - 30000) / 100.00));
                         else
                         {
-                            if (Entity.IsPlayer())
-                                Damage = MyMath.GetDamagePlayer2Player(Attacker, Player, Attacker.MagicType, Attacker.MagicLevel);
-                            else if (Entity.IsMonster())
-                                Damage = MyMath.GetDamagePlayer2Monster(Attacker, Monster, Attacker.MagicType, Attacker.MagicLevel);
-                            else if (Entity.IsTerrainNPC())
-                                Damage = MyMath.GetDamagePlayer2Environment(Attacker, Npc, Attacker.MagicType, Attacker.MagicLevel);
+                            if (entity.IsPlayer())
+                                damage = MyMath.GetDamageMonster2Player((Monster)aAttacker, Player, aAttacker.MagicType, aAttacker.MagicLevel);
                         }
+                    }
 
-                        //TargetType -> 8; Passive skill
-                        if (Info.Target != 8 && Info.Success != 100 && !MyMath.Success(Info.Success))
-                            Damage = 0;
-                        #endregion
+                    //TargetType -> 8; Passive skill
+                    if (Info.Target != 8 && Info.Success != 100 && !MyMath.Success(Info.Success))
+                        damage = 0;
+                    #endregion
 
-                        #region Process damage / skill
-                        switch (Info.ActionSort)
-                        {
-                            case 2:
+                    #region Process damage / skill
+                    switch (Info.Sort)
+                    {
+                        case MagicSort.RecoverSingleHP:
+                            {
+                                if (entity.CurHP + damage >= entity.MaxHP)
                                 {
-                                    if (Entity.CurHP + Damage >= Entity.MaxHP)
+                                    MagicExp += (UInt32)(entity.MaxHP - entity.CurHP);
+                                    entity.CurHP = entity.MaxHP;
+                                }
+                                else
+                                {
+                                    MagicExp += (UInt32)damage;
+                                    entity.CurHP += damage;
+                                }
+
+                                if (entity.IsPlayer())
+                                {
+                                    var msg = new MsgUserAttrib(Player, Player.CurHP, MsgUserAttrib.AttributeType.Life);
+                                    Player.Send(msg);
+                                    if (Player.Team != null)
+                                        Player.Team.BroadcastMsg(msg);
+                                    msg = null;
+                                }
+                                break;
+                            }
+                        case MagicSort.AttackSingleStatus:
+                            {
+                                int duration = (int)Info.StepSecs * 1000;
+                                double power = ((double)(damage - 30000) / 100.00);
+
+                                switch (aAttacker.MagicType)
+                                {
+                                    case 1015:
+                                        {
+                                            entity.AttachStatus(Status.Accuracy, duration, power);
+                                            
+                                            if (entity.IsPlayer())
+                                                MyMath.GetEquipStats(Player);
+
+                                            break;
+                                        }
+                                    case 1020:
+                                        {
+                                            entity.AttachStatus(Status.MagicDefense, duration, power);
+
+                                            if (entity.IsPlayer())
+                                                MyMath.GetEquipStats(Player);
+
+                                            break;
+                                        }
+                                    case 1025:
+                                        {
+                                            if (entity.HasStatus(Status.SuperSpeed))
+                                                entity.DetachStatus(Status.SuperSpeed);
+
+                                            entity.AttachStatus(Status.SuperAtk, duration, power);
+
+                                            if (entity.IsPlayer())
+                                                MyMath.GetEquipStats(Player);
+
+                                            break;
+                                        }
+                                    case 1075:
+                                        {
+                                            ++MagicExp;
+                                            entity.AttachStatus(Status.Hidden, duration);
+                                            break;
+                                        }
+                                    case 1085:
+                                        {
+                                            ++MagicExp;
+                                            entity.AttachStatus(Status.Accuracy, duration, power);
+                                            
+                                            if (entity.IsPlayer())
+                                                MyMath.GetEquipStats(Player);
+
+                                            break;
+                                        }
+                                    case 1090:
+                                        {
+                                            ++MagicExp;
+                                            entity.AttachStatus(Status.MagicDefense, duration, power);
+
+                                            if (entity.IsPlayer())
+                                                MyMath.GetEquipStats(Player);
+
+                                            break;
+                                        }
+                                    case 1095:
+                                        {
+                                            ++MagicExp;
+                                            entity.AttachStatus(Status.MagicAttack, duration, power);
+
+                                            if (entity.IsPlayer())
+                                                MyMath.GetEquipStats(Player);
+                                            
+                                            break;
+                                        }
+                                    case 1110:
+                                        {
+                                            if (entity.HasStatus(Status.SuperAtk))
+                                                entity.DetachStatus(Status.SuperAtk);
+
+                                            entity.AttachStatus(Status.SuperSpeed, duration, power);
+
+                                            if (entity.IsPlayer())
+                                                MyMath.GetEquipStats(Player);
+                                            
+                                            break;
+                                        }
+                                    case 8002:
+                                        {
+                                            if (entity.HasStatus(Status.MagicDefense))
+                                                break;
+
+                                            entity.AttachStatus(Status.Flying, duration);
+                                            break;
+                                        }
+                                    case 8003:
+                                        {
+                                            if (entity.HasStatus(Status.MagicDefense))
+                                                break;
+
+                                            entity.AttachStatus(Status.Flying, duration);
+                                            break;
+                                        }
+                                    case 9000:
+                                        {
+                                            ++MagicExp;
+                                            entity.AttachStatus((Status)Info.Status, -1, power);
+                                            break;
+                                        }
+                                    case 9876:
+                                        {
+                                            entity.AttachStatus(Status.CastingPray);
+
+                                            if (entity.IsPlayer())
+                                            {
+                                                Player.CastingPray = true;
+                                                Player.PrayMap = entity.Map.Id;
+                                                Player.PrayX = entity.X;
+                                                Player.PrayY = entity.Y;
+                                            }
+
+                                            break;
+                                        }
+                                    case 10203:
+                                        {
+                                            StatusEffect effect;
+                                            if (entity.GetStatus(Status.MagicDefense, out effect))
+                                            {
+                                                effect.Data = power;
+                                                effect.ResetTimeout(duration);
+                                                break;
+                                            }
+
+                                            entity.AttachStatus(Status.MagicDefense, duration, power);
+
+                                            if (entity.IsPlayer())
+                                                MyMath.GetEquipStats(Player);
+
+                                            break;
+                                        }
+                                    default:
+                                        sLogger.Warn("Magic {0} is not implemented !", aAttacker.MagicType);
+                                        break;
+                                }
+                                damage = 0;
+                                break;
+                            }
+                        case MagicSort.RecoverSingleStatus:
+                            {
+                                if (entity.IsPlayer() && !entity.IsAlive())
+                                    Player.Reborn(false);
+                                break;
+                            }
+                        case MagicSort.DispatchXP:
+                            {
+                                if (entity.IsPlayer())
+                                {
+                                    if (Player.XP + damage >= 100)
+                                        Player.XP = 100;
+                                    else
+                                        Player.XP += (Byte)damage;
+                                    Player.Send(new MsgUserAttrib(Player, Player.XP, MsgUserAttrib.AttributeType.XP));
+                                }
+                                break;
+                            }
+                        case MagicSort.Transform:
+                            {
+                                if (entity.IsPlayer())
+                                {
+                                    MonsterInfo MonsterInfo;
+                                    if (Database.AllMonsters.TryGetValue(damage, out MonsterInfo))
                                     {
-                                        MagicExp += Entity.MaxHP - Entity.CurHP;
-                                        Entity.CurHP = Entity.MaxHP;
+                                        MagicExp++;
+                                        Player.TransformEndTime = Environment.TickCount + ((Int32)Info.StepSecs * 1000);
+                                        
+                                        // TODO re-enable transformation skills
+                                        //Player.AddTransform(MonsterInfo.Look);
+                                        Player.MinAtk = (Int32)MonsterInfo.MinAtk;
+                                        Player.MaxAtk = (Int32)MonsterInfo.MaxAtk;
+                                        Player.Defence = (Int32)MonsterInfo.Defense;
+                                        Player.MagicAtk = 0;
+                                        Player.MagicDef = (Int32)MonsterInfo.MagicDef;
+                                        Player.MagicBlock = 0;
+                                        Player.Dodge = MonsterInfo.Dodge;
+                                        Player.Dexterity = 1000;
+                                        Player.AtkRange = MonsterInfo.AtkRange;
+                                        Player.AtkSpeed = MonsterInfo.AtkSpeed;
+                                        Player.AtkType = 2;
+                                        Player.Bless = 1.00;
+                                        Player.GemBonus = 1.00;
+                                        if (Player.CurHP >= Player.MaxHP)
+                                            Player.CurHP = Player.MaxHP;
+                                        Player.CurHP = (Int32)((Double)MonsterInfo.Life * ((Double)Player.CurHP / (Double)Player.MaxHP));
+                                        Player.MaxHP = MonsterInfo.Life;
+
+                                        Player.Send(new MsgUserAttrib(Player, Player.CurHP, MsgUserAttrib.AttributeType.Life));
+                                        Player.Send(new MsgUserAttrib(Player, Player.MaxHP, (MsgUserAttrib.AttributeType.Life + 1)));
+                                        if (Player.Team != null)
+                                        {
+                                            Player.Team.BroadcastMsg(new MsgUserAttrib(Player, Player.CurHP, MsgUserAttrib.AttributeType.Life));
+                                            Player.Team.BroadcastMsg(new MsgUserAttrib(Player, Player.MaxHP, (MsgUserAttrib.AttributeType.Life + 1)));
+                                        }
+                                        World.BroadcastRoomMsg(Player, new MsgUserAttrib(Player, Player.Look, MsgUserAttrib.AttributeType.Look), true);
+                                    }
+                                }
+                                damage = 0;
+                                break;
+                            }
+                        case MagicSort.AddMana:
+                            {
+                                if (entity.IsPlayer())
+                                {
+                                    if (Player.CurMP + damage >= Player.MaxMP)
+                                    {
+                                        MagicExp += (UInt32)(Player.MaxMP - Player.CurMP);
+                                        Player.CurMP = Player.MaxMP;
                                     }
                                     else
                                     {
-                                        MagicExp += Damage;
-                                        Entity.CurHP += Damage;
+                                        MagicExp += (UInt32)damage;
+                                        Player.CurMP += (UInt16)damage;
                                     }
-
-                                    if (Entity.IsPlayer())
-                                    {
-                                        Byte[] Msg = MsgUserAttrib.Create(Player, Player.CurHP, MsgUserAttrib.Type.Life);
-                                        Player.Send(Msg);
-                                        if (Player.Team != null)
-                                            World.BroadcastTeamMsg(Player.Team, Msg);
-                                        Msg = null;
-                                    }
-                                    break;
+                                    Player.Send(new MsgUserAttrib(Player, Player.CurMP, MsgUserAttrib.AttributeType.Mana));
                                 }
-                            case 6:
+                                break;
+                            }
+                        case MagicSort.CallPet:
+                            {
+                                if (!aAttacker.IsPlayer())
                                 {
-                                    switch (Attacker.MagicType)
-                                    {
-                                        case 1015:
-                                            {
-                                                if (Entity.AccuracyEndTime != 0)
-                                                {
-                                                    Entity.AccuracyEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                    break;
-                                                }
-
-                                                Entity.AccuracyEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                Entity.StarOfAccuracyEndTime = 0;
-                                                Entity.DexterityBonus = ((Double)(Damage - 30000) / 100.00);
-                                                Entity.AddFlag(Player.Flag.Accuracy);
-                                                if (Entity.IsPlayer())
-                                                {
-                                                    MyMath.GetEquipStats(Player);
-                                                    World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags), true);
-                                                }
-                                                else
-                                                    World.BroadcastRoomMsg(Entity, MsgUserAttrib.Create(Entity, Entity.Flags, MsgUserAttrib.Type.Flags));
-                                                break;
-                                            }
-                                        case 1020:
-                                            {
-                                                if (Entity.ShieldEndTime != 0)
-                                                {
-                                                    Entity.ShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                    break;
-                                                }
-
-                                                Entity.ShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                Entity.MagicShieldEndTime = 0;
-                                                Entity.DefenceBonus = ((Double)(Damage - 30000) / 100.00);
-                                                Entity.AddFlag(Player.Flag.Shield);
-                                                if (Entity.IsPlayer())
-                                                {
-                                                    MyMath.GetEquipStats(Player);
-                                                    World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags), true);
-                                                }
-                                                else
-                                                    World.BroadcastRoomMsg(Entity, MsgUserAttrib.Create(Entity, Entity.Flags, MsgUserAttrib.Type.Flags));
-                                                break;
-                                            }
-                                        case 1025:
-                                            {
-                                                if (Entity.SupermanEndTime != 0)
-                                                {
-                                                    Entity.SupermanEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                    break;
-                                                }
-
-                                                if (Entity.CycloneEndTime != 0)
-                                                    Entity.CycloneEndTime = Environment.TickCount;
-
-                                                Entity.SupermanEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                Entity.StigmaEndTime = 0;
-                                                Entity.AttackBonus = ((Double)(Damage - 30000) / 100.00);
-                                                Entity.AddFlag(Player.Flag.SuperMan);
-                                                Entity.DelFlag(Player.Flag.Stigma);
-                                                if (Entity.IsPlayer())
-                                                {
-                                                    MyMath.GetEquipStats(Player);
-                                                    World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags), true);
-                                                }
-                                                else
-                                                    World.BroadcastRoomMsg(Entity, MsgUserAttrib.Create(Entity, Entity.Flags, MsgUserAttrib.Type.Flags));
-                                                break;
-                                            }
-                                        case 1075:
-                                            {
-                                                MagicExp++;
-                                                if (Entity.InvisibilityEndTime != 0)
-                                                {
-                                                    Entity.InvisibilityEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                    break;
-                                                }
-
-                                                Entity.InvisibilityEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                Entity.AddFlag(Player.Flag.Invisibility);
-
-                                                if (Entity.IsPlayer())
-                                                    World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags), true);
-                                                else
-                                                    World.BroadcastRoomMsg(Entity, MsgUserAttrib.Create(Entity, Entity.Flags, MsgUserAttrib.Type.Flags));
-                                                break;
-                                            }
-                                        case 1085:
-                                            {
-                                                MagicExp++;
-                                                if (Entity.StarOfAccuracyEndTime != 0)
-                                                {
-                                                    Entity.StarOfAccuracyEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                    break;
-                                                }
-
-                                                Entity.StarOfAccuracyEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                Entity.AccuracyEndTime = 0;
-                                                Entity.DexterityBonus = ((Double)(Damage - 30000) / 100.00);
-                                                Entity.AddFlag(Player.Flag.Accuracy);
-                                                if (Entity.IsPlayer())
-                                                {
-                                                    MyMath.GetEquipStats(Player);
-                                                    World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags), true);
-                                                }
-                                                else
-                                                    World.BroadcastRoomMsg(Entity, MsgUserAttrib.Create(Entity, Entity.Flags, MsgUserAttrib.Type.Flags));
-                                                break;
-                                            }
-                                        case 1090:
-                                            {
-                                                MagicExp++;
-                                                if (Entity.MagicShieldEndTime != 0)
-                                                {
-                                                    Entity.MagicShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                    break;
-                                                }
-
-                                                Entity.MagicShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                Entity.ShieldEndTime = 0;
-                                                Entity.DefenceBonus = ((Double)(Damage - 30000) / 100.00);
-                                                Entity.AddFlag(Player.Flag.Shield);
-                                                if (Entity.IsPlayer())
-                                                {
-                                                    MyMath.GetEquipStats(Player);
-                                                    World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags), true);
-                                                }
-                                                else
-                                                    World.BroadcastRoomMsg(Entity, MsgUserAttrib.Create(Entity, Entity.Flags, MsgUserAttrib.Type.Flags));
-                                                break;
-                                            }
-                                        case 1095:
-                                            {
-                                                MagicExp++;
-                                                if (Entity.StigmaEndTime != 0)
-                                                {
-                                                    Entity.StigmaEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                    break;
-                                                }
-
-                                                Entity.StigmaEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                Entity.SupermanEndTime = 0;
-                                                Entity.AttackBonus = ((Double)(Damage - 30000) / 100.00);
-                                                Entity.AddFlag(Player.Flag.Stigma);
-                                                Entity.DelFlag(Player.Flag.SuperMan);
-                                                if (Entity.IsPlayer())
-                                                {
-                                                    MyMath.GetEquipStats(Player);
-                                                    World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags), true);
-                                                }
-                                                else
-                                                    World.BroadcastRoomMsg(Entity, MsgUserAttrib.Create(Entity, Entity.Flags, MsgUserAttrib.Type.Flags));
-                                                break;
-                                            }
-                                        case 1110:
-                                            {
-                                                if (Entity.CycloneEndTime != 0)
-                                                {
-                                                    Entity.CycloneEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                    break;
-                                                }
-
-                                                if (Entity.SupermanEndTime != 0)
-                                                    Entity.SupermanEndTime = Environment.TickCount;
-
-                                                Entity.CycloneEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                Entity.SpeedBonus = ((Double)(Damage - 30000) / 100.00);
-                                                Entity.AddFlag(Player.Flag.Cyclone);
-                                                if (Entity.IsPlayer())
-                                                {
-                                                    MyMath.GetEquipStats(Player);
-                                                    World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags), true);
-                                                }
-                                                else
-                                                    World.BroadcastRoomMsg(Entity, MsgUserAttrib.Create(Entity, Entity.Flags, MsgUserAttrib.Type.Flags));
-                                                break;
-                                            }
-                                        case 8002:
-                                            {
-                                                if (Entity.ShieldEndTime != 0 || Entity.MagicShieldEndTime != 0)
-                                                    break;
-
-                                                if (Entity.FlyEndTime != 0)
-                                                {
-                                                    Entity.FlyEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                    break;
-                                                }
-
-                                                Entity.FlyEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                Entity.AddFlag(Player.Flag.Flying);
-
-                                                if (Entity.IsPlayer())
-                                                    World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags), true);
-                                                else
-                                                    World.BroadcastRoomMsg(Entity, MsgUserAttrib.Create(Entity, Entity.Flags, MsgUserAttrib.Type.Flags));
-                                                break;
-                                            }
-                                        case 3510:
-                                            {
-                                                MagicExp++;
-                                                if (Entity.AzureShieldEndTime != 0)
-                                                {
-                                                    Entity.AzureShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                    break;
-                                                }
-
-                                                Entity.AzureShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                Entity.DefenceAddBonus = Damage;
-                                                Entity.AddFlag(Player.Flag.AzureShield);
-                                                if (Entity.IsPlayer())
-                                                {
-                                                    MyMath.GetEquipStats(Player);
-                                                    World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags), true);
-                                                }
-                                                else
-                                                    World.BroadcastRoomMsg(Entity, MsgUserAttrib.Create(Entity, Entity.Flags, MsgUserAttrib.Type.Flags));
-                                                break;
-                                            }
-                                        case 8003:
-                                            {
-                                                if (Entity.ShieldEndTime != 0 || Entity.MagicShieldEndTime != 0)
-                                                    break;
-
-                                                if (Entity.FlyEndTime != 0)
-                                                {
-                                                    Entity.FlyEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                    break;
-                                                }
-
-                                                Entity.FlyEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                Entity.AddFlag(Player.Flag.Flying);
-
-                                                if (Entity.IsPlayer())
-                                                    World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags), true);
-                                                else
-                                                    World.BroadcastRoomMsg(Entity, MsgUserAttrib.Create(Entity, Entity.Flags, MsgUserAttrib.Type.Flags));
-                                                break;
-                                            }
-                                        case 9876:
-                                            {
-                                                Entity.AddFlag(Player.Flag.CastingPray);
-
-                                                if (Entity.IsPlayer())
-                                                {
-                                                    Player.CastingPray = true;
-                                                    Player.PrayMap = Entity.Map;
-                                                    Player.PrayX = Entity.X;
-                                                    Player.PrayY = Entity.Y;
-                                                }
-
-                                                if (Entity.IsPlayer())
-                                                    World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags), true);
-                                                else
-                                                    World.BroadcastRoomMsg(Entity, MsgUserAttrib.Create(Entity, Entity.Flags, MsgUserAttrib.Type.Flags));
-                                                break;
-                                            }
-                                        case 10203:
-                                            {
-                                                if (Entity.MagicShieldEndTime != 0)
-                                                {
-                                                    Entity.MagicShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                    break;
-                                                }
-
-                                                Entity.MagicShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                                Entity.ShieldEndTime = 0;
-                                                Entity.DefenceBonus = ((Double)(Damage - 30000) / 100.00);
-                                                Entity.AddFlag(Player.Flag.Shield);
-                                                if (Entity.IsPlayer())
-                                                {
-                                                    MyMath.GetEquipStats(Player);
-                                                    World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Flags, MsgUserAttrib.Type.Flags), true);
-                                                }
-                                                else
-                                                    World.BroadcastRoomMsg(Entity, MsgUserAttrib.Create(Entity, Entity.Flags, MsgUserAttrib.Type.Flags));
-                                                break;
-                                            }
-                                        default:
-                                            Attacker.SendSysMsg("Magic[" + Attacker.MagicType + "] not implemented yet!");
-                                            break;
-                                    }
-                                    Damage = 0;
-                                    break;
+                                    sLogger.Error("MagicSort::CallPet used by a non-player entity.");
+                                    return;
                                 }
-                            case 7:
+
+                                damage = 0;
+                                MagicExp += 1;
+
+                                Generator.generatePet((Player)aAttacker, (Int32)Info.Power);
+                                break;
+                            }
+                        default:
+                            {
+                                if (entity.IsPlayer())
+                                    Player.RemoveDefDura();
+
+                                #region Not a player || Not reflected
+                                if (!entity.IsPlayer() || (entity.IsPlayer() && !Player.Reflect()))
                                 {
-                                    if (Entity.IsPlayer() && !Entity.IsAlive())
-                                        Player.Reborn(false);
-                                    break;
-                                }
-                            case 11:
-                                {
-                                    if (Entity.IsPlayer())
+                                    if (damage >= entity.CurHP)
                                     {
-                                        if (Player.XP + Damage >= 100)
-                                            Player.XP = 100;
-                                        else
-                                            Player.XP += (Byte)Damage;
-                                        Player.Send(MsgUserAttrib.Create(Player, Player.XP, MsgUserAttrib.Type.XP));
-                                    }
-                                    break;
-                                }
-                            case 19:
-                                {
-                                    if (Entity.IsPlayer())
-                                    {
-                                        MonsterInfo MonsterInfo;
-                                        if (Database.AllMonsters.TryGetValue(Damage, out MonsterInfo))
+                                        if (entity.IsPlayer())
                                         {
-                                            MagicExp++;
-                                            Player.TransformEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                            Player.AddTransform(MonsterInfo.Look);
-                                            Player.MinAtk = MonsterInfo.MinAtk;
-                                            Player.MaxAtk = MonsterInfo.MaxAtk;
-                                            Player.Defence = MonsterInfo.Defence;
-                                            Player.MagicAtk = 0;
-                                            Player.MagicDef = MonsterInfo.MagicDef;
-                                            Player.MagicBlock = 0;
-                                            Player.Dodge = MonsterInfo.Dodge;
-                                            Player.Weight = 0;
-                                            Player.Dexterity = 1000;
-                                            Player.AtkRange = MonsterInfo.AtkRange;
-                                            Player.AtkSpeed = MonsterInfo.AtkSpeed;
-                                            Player.AtkType = 2;
-                                            Player.Bless = 1.00;
-                                            Player.GemBonus = 1.00;
-                                            if (Player.CurHP >= Player.MaxHP)
-                                                Player.CurHP = Player.MaxHP;
-                                            Player.CurHP = (Int32)((Double)MonsterInfo.Life * ((Double)Player.CurHP / (Double)Player.MaxHP));
-                                            Player.MaxHP = MonsterInfo.Life;
-
-                                            Player.Send(MsgUserAttrib.Create(Player, Player.CurHP, MsgUserAttrib.Type.Life));
-                                            Player.Send(MsgUserAttrib.Create(Player, Player.MaxHP, (MsgUserAttrib.Type.Life + 1)));
-                                            if (Player.Team != null)
-                                            {
-                                                World.BroadcastTeamMsg(Player.Team, MsgUserAttrib.Create(Player, Player.CurHP, MsgUserAttrib.Type.Life));
-                                                World.BroadcastTeamMsg(Player.Team, MsgUserAttrib.Create(Player, Player.MaxHP, (MsgUserAttrib.Type.Life + 1)));
-                                            }
-                                            World.BroadcastRoomMsg(Player, MsgUserAttrib.Create(Player, Player.Look, MsgUserAttrib.Type.Look), true);
+                                            Player.Die(aAttacker);
                                         }
-                                    }
-                                    Damage = 0;
-                                    break;
-                                }
-                            case 20:
-                                {
-                                    if (Entity.IsPlayer())
-                                    {
-                                        if (Player.CurMP + Damage >= Player.MaxMP)
+                                        else if (entity.IsMonster())
                                         {
-                                            MagicExp += Player.MaxMP - Player.CurMP;
-                                            Player.CurMP = Player.MaxMP;
-                                        }
-                                        else
-                                        {
-                                            MagicExp += Damage;
-                                            Player.CurMP += (UInt16)Damage;
-                                        }
-                                        Player.Send(MsgUserAttrib.Create(Player, Player.CurMP, MsgUserAttrib.Type.Mana));
-                                    }
-                                    break;
-                                }
-                            default:
-                                {
-                                    if (Entity.IsPlayer())
-                                        Player.RemoveDefDura();
-
-                                    #region Not a player || Not reflected
-                                    if (!Entity.IsPlayer() || (Entity.IsPlayer() && !Player.Reflect()))
-                                    {
-                                        if (Damage >= Entity.CurHP)
-                                        {
-                                            if (Entity.IsPlayer())
+                                            if (aAttacker.IsPlayer())
                                             {
-                                                Player.Die();
-                                                if (Info.Crime == 1)
+                                                if (attacker.XP < 99)
+                                                    ++attacker.XP;
+
+                                                StatusEffect effect;
+                                                if (attacker.GetStatus(Status.SuperSpeed, out effect))
                                                 {
-                                                    if (!Map.IsPkField() && !Map.IsSynMap() && !Map.IsPrisonMap())
-                                                    {
-                                                        if (!Player.ContainsFlag(Player.Flag.RedName) &&
-                                                            !Player.ContainsFlag(Player.Flag.BlackName) &&
-                                                            !Player.ContainsFlag(Player.Flag.Flashing))
-                                                        {
-                                                            if (Attacker.Enemies.ContainsKey(Player.UniqId))
-                                                                Attacker.PkPoints += 5;
-                                                            else if (Attacker.Syndicate != null && Player.Syndicate != null
-                                                                && Attacker.Syndicate.IsAnEnemy(Player.Syndicate.UniqId))
-                                                                Attacker.PkPoints += 3;
-                                                            else
-                                                                Attacker.PkPoints += 10;
-
-                                                            if (Attacker.PkPoints > 30000)
-                                                                Attacker.PkPoints = 30000;
-
-                                                            Attacker.Send(MsgUserAttrib.Create(Attacker, Attacker.PkPoints, MsgUserAttrib.Type.PkPoints));
-
-                                                            if (Attacker.PkPoints >= 30 && Attacker.PkPoints < 100)
-                                                            {
-                                                                if (!Attacker.ContainsFlag(Player.Flag.RedName))
-                                                                {
-                                                                    Attacker.AddFlag(Player.Flag.RedName);
-                                                                    World.BroadcastRoomMsg(Attacker, MsgUserAttrib.Create(Attacker, Attacker.Flags, MsgUserAttrib.Type.Flags), true);
-                                                                }
-                                                            }
-                                                            else if (Attacker.PkPoints >= 100)
-                                                            {
-                                                                Attacker.DelFlag(Player.Flag.RedName);
-                                                                if (!Attacker.ContainsFlag(Player.Flag.BlackName))
-                                                                {
-                                                                    Attacker.AddFlag(Player.Flag.BlackName);
-                                                                    World.BroadcastRoomMsg(Attacker, MsgUserAttrib.Create(Attacker, Attacker.Flags, MsgUserAttrib.Type.Flags), true);
-                                                                }
-                                                            }
-
-                                                            if (Player.BlessEndTime != 0 && Attacker.BlessEndTime == 0)
-                                                            {
-                                                                if (Attacker.CurseEndTime == 0)
-                                                                {
-                                                                    Byte Param = 1;
-                                                                    if (Attacker.BlessEndTime != 0)
-                                                                        Param += 2;
-                                                                    World.BroadcastRoomMsg(Attacker, MsgUserAttrib.Create(Attacker, Param, MsgUserAttrib.Type.SizeAdd), true);
-                                                                }
-                                                                Attacker.CurseEndTime = Environment.TickCount + (1200 * 1000);
-                                                                Attacker.Send(MsgUserAttrib.Create(Attacker, 1200, MsgUserAttrib.Type.CurseTime));
-                                                            }
-                                                        }
-
-                                                        if (!Player.Enemies.ContainsKey(Attacker.UniqId))
-                                                        {
-                                                            Player.Enemies.Add(Attacker.UniqId, Attacker.Name);
-                                                            Player.Send(MsgFriend.Create(Attacker.UniqId, Attacker.Name, true, MsgFriend.Action.EnemyAdd));
-                                                        }
-
-                                                        if (Player.BlessEndTime == 0)
-                                                        {
-                                                            UInt64 Exp2 = (UInt64)(Player.Exp * 0.02);
-                                                            if (Target.ContainsFlag(Player.Flag.RedName))
-                                                                Exp2 = (UInt64)(Player.Exp * 0.10);
-                                                            else if (Target.ContainsFlag(Player.Flag.BlackName))
-                                                                Exp2 = (UInt64)(Player.Exp * 0.20);
-
-                                                            //if ((Targets1[i] as Player).Syndicate != null)
-                                                            //{
-                                                            //    Syndicate.Member Member = (Targets1[i] as Player).Syndicate.GetMemberInfo(Target.UniqId);
-                                                            //    if (Member != null)
-                                                            //    {
-                                                            //        UInt64 Compensation = 0;
-                                                            //        if (Member.Donation > 0)
-                                                            //        {
-                                                            //            if (Member.Rank == 100) //Guild Leader
-                                                            //                Compensation = (UInt64)(Exp2 * 0.80);
-                                                            //            else if (Member.Rank == 90) //Deputy Leader
-                                                            //                Compensation = (UInt64)(Exp2 * 0.60);
-                                                            //            else if (Member.Rank == 80)
-                                                            //                Compensation = (UInt64)(Exp2 * 0.40);
-                                                            //            else if (Member.Rank == 70)
-                                                            //                Compensation = (UInt64)(Exp2 * 0.35);
-                                                            //            else if (Member.Rank == 60)
-                                                            //                Compensation = (UInt64)(Exp2 * 0.30);
-                                                            //            else
-                                                            //                Compensation = (UInt64)(Exp2 * 0.25);
-                                                            //        }
-                                                            //        else
-                                                            //            Compensation = (UInt64)(Exp2 * 0.20);
-
-                                                            //        if (Compensation > Int32.MaxValue)
-                                                            //            Compensation = Int32.MaxValue;
-
-                                                            //        (Targets1[i] as Player).Syndicate.Money -= (Int32)Compensation;
-                                                            //        Member.Donation -= (Int32)Compensation;
-                                                            //        Exp2 -= Compensation;
-
-                                                            //        World.SynThread.AddToQueue((Targets1[i] as Player).Syndicate, "Money", (Targets1[i] as Player).Syndicate.Money);
-                                                            //    }
-                                                            //}
-
-                                                            if (Player.Exp < Exp2)
-                                                                Player.Exp = 0;
-                                                            else
-                                                                Player.Exp -= Exp2;
-                                                            Player.Send(MsgUserAttrib.Create(Player, (Int64)Player.Exp, MsgUserAttrib.Type.Exp));
-                                                            Attacker.AddExp(Exp2 * 0.10, false);
-                                                        }
-
-                                                        {
-                                                            Int32 CPs = (Int32)(Player.CPs * 0.02);
-                                                            if (Player.ContainsFlag(Player.Flag.RedName))
-                                                                CPs = (Int32)(Player.CPs * 0.10);
-                                                            else if (Player.ContainsFlag(Player.Flag.BlackName))
-                                                                CPs = (Int32)(Player.CPs * 0.20);
-
-                                                            Int32 Compensation = 0;
-                                                            if (Player.Syndicate != null)
-                                                            {
-                                                                Syndicate.Member Member = Player.Syndicate.GetMemberInfo(Player.UniqId);
-                                                                if (Member != null)
-                                                                {
-                                                                    if (Member.Rank == 100) //Guild Leader
-                                                                        Compensation = (Int32)(CPs * 0.80);
-                                                                    else if (Member.Rank == 90) //Deputy Leader
-                                                                        Compensation = (Int32)(CPs * 0.60);
-                                                                    else if (Member.Rank == 80)
-                                                                        Compensation = (Int32)(CPs * 0.40);
-                                                                    else if (Member.Rank == 70)
-                                                                        Compensation = (Int32)(CPs * 0.35);
-                                                                    else if (Member.Rank == 60)
-                                                                        Compensation = (Int32)(CPs * 0.30);
-                                                                    else
-                                                                        Compensation = (Int32)(CPs * 0.25);
-                                                                }
-                                                            }
-
-                                                            if (Player.CPs < CPs)
-                                                                Player.CPs = 0;
-                                                            else
-                                                                Player.CPs -= CPs + Compensation;
-                                                            Player.Send(MsgUserAttrib.Create(Player, Player.CPs, MsgUserAttrib.Type.CPs));
-
-                                                            Attacker.CPs += CPs;
-                                                            Attacker.Send(MsgUserAttrib.Create(Attacker, Attacker.CPs, MsgUserAttrib.Type.CPs));
-                                                        }
-
-                                                        if (Player.ContainsFlag(Player.Flag.RedName) ||
-                                                            Player.ContainsFlag(Player.Flag.BlackName))
-                                                            Player.DropEquipment();
-
-                                                        if (Player.ContainsFlag(Player.Flag.BlackName))
-                                                        {
-                                                            World.BroadcastMsg(MsgTalk.Create("SYSTEM", "ALLUSERS", STR.Get("STR_SENT_TO_JAIL"), MsgTalk.Channel.GM, 0xFF0000));
-                                                            Player.Move(6000, 29, 72);
-                                                        }
-                                                    }
+                                                    effect.IncreaseDuration(820);
+                                                    ++attacker.CurKO;
                                                 }
-                                            }
-                                            else if (Entity.IsMonster())
-                                            {
-                                                if (Attacker.XP < 99)
-                                                    Attacker.XP++;
-                                                if (Attacker.CycloneEndTime != 0)
+                                                if (attacker.GetStatus(Status.SuperAtk, out effect))
                                                 {
-                                                    Attacker.CycloneEndTime += 820;
-                                                    Attacker.CurKO++;
-                                                }
-                                                if (Attacker.SupermanEndTime != 0)
-                                                {
-                                                    Attacker.SupermanEndTime += 820;
-                                                    Attacker.CurKO++;
+                                                    effect.IncreaseDuration(820);
+                                                    ++attacker.CurKO;
                                                 }
 
-                                                if (Monster.Id == 5053 || Monster.Id == 5054 || Monster.Id == 5055 || Monster.Id == 5056 || Monster.Id == 5057)
-                                                {
-                                                    Attacker.DisKO++;
-                                                    Attacker.SendSysMsg("Vous avez tué " + Attacker.DisKO + " sur " + Attacker.DisToKill + " monstres!");
-                                                }
+                                                Int32 CurHP = entity.CurHP;
+                                                Monster.Die(attacker.UniqId);
 
-                                                Int32 CurHP = Entity.CurHP;
-                                                Monster.Die(Attacker.UniqId);
-
-                                                Exp += AdjustExp(CurHP, Attacker, Monster);
-                                                MagicExp += AdjustExp(CurHP, Attacker, Monster);
+                                                Exp += AdjustExp(CurHP, attacker, Monster);
+                                                MagicExp += AdjustExp(CurHP, attacker, Monster);
 
                                                 Int32 Bonus = (Int32)(Monster.MaxHP * 0.05);
-                                                if (Attacker.Team != null)
-                                                    Attacker.Team.AwardMemberExp(Attacker, Monster, Bonus);
+                                                if (attacker.Team != null)
+                                                    attacker.Team.AwardMemberExp(attacker, Monster, Bonus);
 
-                                                Int32 BonusExp = AdjustExp(Bonus, Attacker, Monster);
-                                                Attacker.AddExp(BonusExp, true);
-                                                Attacker.SendSysMsg(String.Format(Attacker.Owner.GetStr("STR_KILL_EXPERIENCE"), BonusExp));
+                                                UInt32 BonusExp = AdjustExp(Bonus, attacker, Monster);
+                                                attacker.AddExp(BonusExp, true);
+                                                attacker.SendSysMsg(String.Format(StrRes.STR_KILL_EXPERIENCE, BonusExp));
                                             }
-                                            else if (Entity.IsTerrainNPC())
+                                        }
+                                        else if (entity.IsTerrainNPC())
+                                        {
+                                            if (attacker.IsPlayer())
                                             {
-                                                if (Attacker.XP < 99)
-                                                    Attacker.XP++;
+                                                if (attacker.XP < 99)
+                                                    attacker.XP++;
 
-                                                Int32 CurHP = Entity.CurHP;
+                                                Int32 CurHP = entity.CurHP;
 
                                                 if (Npc.Type == 21 || Npc.Type == 22)
                                                 {
-                                                    Exp += AdjustExp(CurHP, Attacker, Npc);
-                                                    MagicExp += AdjustExp(CurHP, Attacker, Npc);
+                                                    Exp += AdjustExp(CurHP, attacker, Npc);
+                                                    MagicExp += AdjustExp(CurHP, attacker, Npc);
 
-                                                    Int32 Bonus = (Int32)(Entity.MaxHP * 0.05);
+                                                    Int32 Bonus = (Int32)(entity.MaxHP * 0.05);
 
-                                                    Int32 BonusExp = AdjustExp(Bonus, Attacker, Npc);
-                                                    Attacker.AddExp(BonusExp, true);
+                                                    UInt32 BonusExp = AdjustExp(Bonus, attacker, Npc);
+                                                    attacker.AddExp(BonusExp, true);
                                                 }
                                                 else if (Npc.Type == (Byte)TerrainNPC.NpcType.SynFlag)
                                                 {
-                                                    if (Attacker.Syndicate != null)
+                                                    if (attacker.Syndicate != null)
                                                     {
-                                                        if (World.AllMaps[Attacker.Map].InWar)
-                                                            if (Attacker.Syndicate.UniqId != World.AllMaps[Attacker.Map].Holder)
-                                                            {
-                                                                Attacker.Money += (CurHP / 10000);
-                                                                Attacker.Send(MsgUserAttrib.Create(Attacker, Attacker.Money, MsgUserAttrib.Type.Money));
+                                                        // TODO re-enable donation gain on pole
+                                                        //if (attacker.Map.InWar)
+                                                        //    if (attacker.Syndicate.Id != attacker.Map.Holder)
+                                                        //    {
+                                                        //        attacker.Money += (UInt32)(CurHP / 10000);
+                                                        //        attacker.Send(new MsgUserAttrib(attacker, attacker.Money, MsgUserAttrib.AttributeType.Money));
 
-                                                                Syndicate.Member Member = Attacker.Syndicate.GetMemberInfo(Attacker.UniqId);
-                                                                if (Member != null)
-                                                                {
-                                                                    Member.Donation += (CurHP / 10000);
-                                                                    Attacker.Syndicate.Money += (CurHP / 10000);
-                                                                    World.SynThread.AddToQueue(Attacker.Syndicate, "Money", Attacker.Syndicate.Money);
-                                                                }
-                                                            }
+                                                        //        Syndicate.Member Member = attacker.Syndicate.GetMemberInfo(attacker.UniqId);
+                                                        //        if (Member != null)
+                                                        //        {
+                                                        //            Member.Donation += (UInt32)(CurHP / 10000);
+                                                        //            attacker.Syndicate.Money += (UInt32)(CurHP / 10000);
+                                                        //        }
+                                                        //    }
                                                     }
                                                 }
-                                                Npc.GetAttacked(Attacker, Npc.CurHP);
+                                                Npc.GetAttacked(attacker, Npc.CurHP);
 
-                                                World.BroadcastMapMsg(Attacker, MsgInteract.Create(Attacker, Entity, 1, MsgInteract.Action.Kill), true);
+                                                World.BroadcastMapMsg(attacker, new MsgInteract(attacker, entity, 1, MsgInteract.Action.Kill), true);
                                                 Npc.Die();
                                             }
-                                            if (!Entity.IsTerrainNPC())
+                                        }
+
+                                        if (!entity.IsTerrainNPC())
+                                        {
+                                            if (aAttacker.IsPlayer())
                                             {
-                                                if (!Entity.IsMonster() || (Attacker.SupermanEndTime == 0 && Attacker.CycloneEndTime == 0))
-                                                    World.BroadcastMapMsg(Attacker, MsgInteract.Create(Attacker, Entity, 1, MsgInteract.Action.Kill), true);
+                                                if (!entity.IsMonster() || (!aAttacker.HasStatus(Status.SuperAtk) && !aAttacker.HasStatus(Status.SuperSpeed)))
+                                                    World.BroadcastMapMsg(attacker, new MsgInteract(aAttacker, entity, 1, MsgInteract.Action.Kill), true);
                                                 else
-                                                    World.BroadcastMapMsg(Attacker, MsgInteract.Create(Attacker, Entity, 0xFFFF * Attacker.CurKO, MsgInteract.Action.Kill), true);
+                                                    World.BroadcastMapMsg(attacker, new MsgInteract(aAttacker, entity, 0xFFFF * (attacker.CurKO + 1), MsgInteract.Action.Kill), true);
+                                            }
+                                            else
+                                                World.BroadcastMapMsg(aAttacker, new MsgInteract(aAttacker, entity, 1, MsgInteract.Action.Kill));
+                                        }
+                                    }
+                                    else
+                                    {
+                                        entity.CurHP -= damage;
+                                        if (entity.IsPlayer())
+                                        {
+                                            Player.Send(new MsgUserAttrib(entity, entity.CurHP, MsgUserAttrib.AttributeType.Life));
+                                            if (Player.Team != null)
+                                                Player.Team.BroadcastMsg(new MsgUserAttrib(entity, entity.CurHP, MsgUserAttrib.AttributeType.Life));
+
+                                            if (Player.Action == Emotion.SitDown)
+                                            {
+                                                Player.Energy /= 2;
+                                                Player.Send(new MsgUserAttrib(Player, Player.Energy, MsgUserAttrib.AttributeType.Energy));
+
+                                                Player.Action = Emotion.StandBy;
+                                                World.BroadcastRoomMsg(Player, new MsgAction(Player, (int)Player.Action, MsgAction.Action.Emotion), true);
                                             }
                                         }
-                                        else
+                                        else if (entity.IsMonster())
                                         {
-                                            Entity.CurHP -= Damage;
-                                            if (Entity.IsPlayer())
+                                            if (aAttacker.IsPlayer())
                                             {
-                                                Player.Send(MsgUserAttrib.Create(Entity, Entity.CurHP, MsgUserAttrib.Type.Life));
-                                                if (Player.Team != null)
-                                                    World.BroadcastTeamMsg(Player.Team, MsgUserAttrib.Create(Entity, Entity.CurHP, MsgUserAttrib.Type.Life));
-
-                                                if (Player.Action == (Byte)MsgAction.Emotion.SitDown)
-                                                {
-                                                    Player.Energy /= 2;
-                                                    Player.Send(MsgUserAttrib.Create(Player, Player.Energy, MsgUserAttrib.Type.Energy));
-
-                                                    Player.Action = (Byte)MsgAction.Emotion.StandBy;
-                                                    World.BroadcastRoomMsg(Player, MsgAction.Create(Player, (Byte)MsgAction.Emotion.StandBy, MsgAction.Action.Emotion), true);
-                                                }
+                                                Exp += AdjustExp(damage, attacker, Monster);
+                                                MagicExp += (UInt32)AdjustExp(damage, attacker, Monster);
                                             }
-                                            else if (Entity.IsMonster())
-                                            {
-                                                Exp += AdjustExp(Damage, Attacker, Monster);
-                                                MagicExp += AdjustExp(Damage, Attacker, Monster);
-                                            }
-                                            else if (Entity.IsTerrainNPC())
+                                        }
+                                        else if (entity.IsTerrainNPC())
+                                        {
+                                            if (aAttacker.IsPlayer())
                                             {
                                                 if (Npc.Type == 21 || Npc.Type == 22)
                                                 {
-                                                    Exp += AdjustExp(Damage, Attacker, Npc);
-                                                    MagicExp += AdjustExp(Damage, Attacker, Npc);
+                                                    Exp += AdjustExp(damage, attacker, Npc);
+                                                    MagicExp += (UInt32)AdjustExp(damage, attacker, Npc);
                                                 }
                                                 else if (Npc.Type == (Byte)TerrainNPC.NpcType.SynFlag)
                                                 {
-                                                    if (Attacker.Syndicate != null)
+                                                    if (attacker.Syndicate != null)
                                                     {
-                                                        if (World.AllMaps[Attacker.Map].InWar)
-                                                            if (Attacker.Syndicate.UniqId != World.AllMaps[Attacker.Map].Holder)
-                                                            {
-                                                                Attacker.Money += (Damage / 10000);
-                                                                Attacker.Send(MsgUserAttrib.Create(Attacker, Attacker.Money, MsgUserAttrib.Type.Money));
+                                                        // TODO re-enable donation gain on pole
+                                                        //if (attacker.Map.InWar)
+                                                        //    if (attacker.Syndicate.Id != attacker.Map.Holder)
+                                                        //    {
+                                                        //        attacker.Money += (UInt32)(damage / 10000);
+                                                        //        attacker.Send(new MsgUserAttrib(attacker, attacker.Money, MsgUserAttrib.AttributeType.Money));
 
-                                                                Syndicate.Member Member = Attacker.Syndicate.GetMemberInfo(Attacker.UniqId);
-                                                                if (Member != null)
-                                                                {
-                                                                    Member.Donation += (Damage / 10000);
-                                                                    Attacker.Syndicate.Money += (Damage / 10000);
-                                                                    Attacker.Send(MsgSynAttrInfo.Create(Attacker.UniqId, Attacker.Syndicate));
-                                                                    World.SynThread.AddToQueue(Attacker.Syndicate, "Money", Attacker.Syndicate.Money);
-                                                                }
-                                                            }
+                                                        //        Syndicate.Member Member = attacker.Syndicate.GetMemberInfo(attacker.UniqId);
+                                                        //        if (Member != null)
+                                                        //        {
+                                                        //            Member.Donation += (UInt32)(damage / 10000);
+                                                        //            attacker.Syndicate.Money += (UInt32)(damage / 10000);
+                                                        //            attacker.Send(new MsgSynAttrInfo(attacker.UniqId, attacker.Syndicate));
+                                                        //        }
+                                                        //    }
                                                     }
                                                 }
-                                                Npc.GetAttacked(Attacker, Damage);
+                                                Npc.GetAttacked(attacker, damage);
                                             }
                                         }
                                     }
-                                    #endregion
-                                    #region Reflected
+                                }
+                                #endregion
+                                #region Reflected
+                                else
+                                {
+                                    if (damage > 2000)
+                                        damage = 2000;
+
+                                    var msg = new MsgInteract(entity, aAttacker, damage, MsgInteract.Action.ReflectMagic);
+                                    if (aAttacker.IsPlayer())
+                                        World.BroadcastMapMsg(attacker, msg, true);
+                                    else
+                                        World.BroadcastMapMsg(aAttacker, msg);
+
+                                    if (damage >= aAttacker.CurHP)
+                                    {
+                                        if (aAttacker.IsPlayer())
+                                            attacker.Die(null);
+                                        else
+                                            ((Monster)aAttacker).Die(entity.UniqId);
+                                        World.BroadcastMapMsg(Player, new MsgInteract(entity, aAttacker, 1, MsgInteract.Action.Kill), true);
+                                    }
                                     else
                                     {
-                                        if (Damage > 2000)
-                                            Damage = 2000;
+                                        aAttacker.CurHP -= damage;
 
-                                        World.BroadcastMapMsg(Attacker, MsgInteract.Create(Entity, Attacker, Damage, MsgInteract.Action.ReflectMagic), true);
-                                        if (Damage >= Attacker.CurHP)
+                                        var msg2 = new MsgUserAttrib(aAttacker, aAttacker.CurHP, MsgUserAttrib.AttributeType.Life);
+                                        if (aAttacker.IsPlayer())
                                         {
-                                            Attacker.Die();
-                                            World.BroadcastMapMsg(Player, MsgInteract.Create(Entity, Attacker, 1, MsgInteract.Action.Kill), true);
+                                            attacker.Send(msg2);
+                                            if (attacker.Team != null)
+                                                attacker.Team.BroadcastMsg(msg2);
                                         }
                                         else
-                                        {
-                                            Attacker.CurHP -= Damage;
-                                            Attacker.Send(MsgUserAttrib.Create(Attacker, Attacker.CurHP, MsgUserAttrib.Type.Life));
-                                            if (Attacker.Team != null)
-                                                World.BroadcastTeamMsg(Attacker.Team, MsgUserAttrib.Create(Attacker, Attacker.CurHP, MsgUserAttrib.Type.Life));
-                                        }
-                                        Reflected = true;
+                                            World.BroadcastMapMsg(aAttacker, msg2);
                                     }
-                                    #endregion
-                                    break;
+                                    Reflected = true;
                                 }
-                        }
-                        #endregion
-
-                        if (Target != null && Info.ActionSort != 11 && Info.ActionSort != 2 && !Reflected)
-                            World.BroadcastMapMsg(Attacker, MsgMagicEffect.Create(Attacker, Target, Damage, X, Y), true);
-                        else if (!Reflected)
-                            Targets.Add(Entity, Damage);
+                                #endregion
+                                break;
+                            }
                     }
-                    Attacker.LastAttackTick = Environment.TickCount;
+                    #endregion
 
-                    if (Attacker.Map != 1039)
+                    if (aTarget != null && Info.Sort != MagicSort.DispatchXP && Info.Sort != MagicSort.RecoverSingleHP && !Reflected)
                     {
-                        if (Attacker.MagicType == 8000)
-                            for (SByte i = 0; i < 5; i++)
-                                Attacker.RemoveAtkDura();
-                        else if (Attacker.MagicType == 8001)
-                            for (SByte i = 0; i < 3; i++)
-                                Attacker.RemoveAtkDura();
+                        var msg = new MsgMagicEffect(aAttacker, aTarget, damage, aTargetX, aTargetY);
+
+                        if (aAttacker.IsPlayer())
+                            World.BroadcastMapMsg(attacker, msg, true);
                         else
-                            Attacker.RemoveAtkDura();
+                            World.BroadcastMapMsg(aAttacker, msg);
                     }
-
-                    Attacker.AddExp(Exp, true);
-                    if (MagicExp > 0 && Info.ActionSort != 16)
-                        Attacker.AddMagicExp(Attacker.MagicType, MagicExp);
-                    else if (MagicExp > 0)
-                        Attacker.AddMagicExp(Attacker.MagicType, 1);
-
-                    if (Target == null || Info.ActionSort == 11 || Info.ActionSort == 2)
-                        World.BroadcastMapMsg(Attacker, MsgMagicEffect.Create(Attacker, Targets, X, Y), true);
-
-                    if (Attacker.Map != 1039)
-                        Battle.Magic.WeaponAttribute(Attacker, null);
+                    else if (!Reflected)
+                        targets.Add(entity, damage);
                 }
-                catch (Exception Exc) { Program.WriteLine(Exc); }
-            }
-            #endregion
 
-            #region Use(Monster, AdvancedEntity, UInt16, UInt16)
-            public static void Use(Monster Attacker, AdvancedEntity Target, UInt16 X, UInt16 Y)
-            {
-                try
+                #region Player: Update LastAttackTick
+                if (aAttacker.IsPlayer())
+                    attacker.LastAttackTick = Environment.TickCount;
+                #endregion
+
+                #region Player: Remove Dura
+                if (aAttacker.IsPlayer() && aAttacker.Map.Id != 1039)
                 {
-                    if (!Attacker.IsAlive())
-                        return;
-
-                    MagicType.Entry Info = new MagicType.Entry();
-                    if (!Database2.AllMagics.TryGetValue((Attacker.MagicType * 10) + Attacker.MagicLevel, out Info))
-                        return;
-
-                    Map Map = null;
-                    if (!World.AllMaps.TryGetValue(Attacker.Map, out Map))
-                        return;
-
-                    AdvancedEntity[] Targets1;
-                    if (Target == null || Info.ActionSort == 2 || Info.ActionSort == 11)
-                    {
-                        switch (Info.ActionSort)
-                        {
-                            case 2:
-                                {
-                                    Targets1 = new AdvancedEntity[] { Target };
-                                    break;
-                                }
-                            case 4:
-                                Targets1 = Battle.Magic.GetTargetsForType04(Attacker, X, Y, Info.Range, Info.Distance);
-                                break;
-                            case 5:
-                                Targets1 = Battle.Magic.GetTargetsForType05(Attacker, X, Y, Info.Range);
-                                break;
-                            case 14:
-                                Targets1 = Battle.Magic.GetTargetsForType14(Attacker, X, Y, Info.Range);
-                                break;
-                            default:
-                                Targets1 = new AdvancedEntity[0];
-                                break;
-                        }
-                    }
+                    if (attacker.MagicType == 8000)
+                        for (SByte i = 0; i < 5; i++)
+                            attacker.RemoveAtkDura();
+                    else if (attacker.MagicType == 8001)
+                        for (SByte i = 0; i < 3; i++)
+                            attacker.RemoveAtkDura();
                     else
-                        Targets1 = new AdvancedEntity[] { Target };
-
-                    if (Info.IntoneDuration > 0)
-                    {
-                        Attacker.MagicIntone = true;
-                        //Thread.Sleep((Int32)Info.IntoneDuration);
-
-                        if (!Attacker.MagicIntone)
-                            return;
-
-                        Attacker.MagicIntone = false;
-                    }
-
-                    Dictionary<AdvancedEntity, Int32> Targets = new Dictionary<AdvancedEntity, Int32>(Targets1.Length);
-                    for (Int32 i = 0; i < Targets1.Length; i++)
-                    {
-                        Boolean Reflected = false;
-
-                        if (Targets1[i] == null || (!Targets1[i].IsAlive() && Info.ActionSort != 7))
-                            continue;
-
-                        if (Attacker.Map != Targets1[i].Map)
-                            continue;
-
-                        if (!MyMath.CanSee(Attacker.X, Attacker.Y, Targets1[i].X, Targets1[i].Y, (Int32)Info.Distance))
-                            continue;
-
-                        if (Info.Target == 0 && Attacker.UniqId == Targets1[i].UniqId)
-                            continue;
-                        else if (Info.Target == 2 && Attacker.UniqId != Targets1[i].UniqId)
-                            continue;
-                        else if (Info.Target == 4 && Attacker.UniqId == Targets1[i].UniqId)
-                            continue;
-                        else if (Info.Target == 8 && Attacker.UniqId == Targets1[i].UniqId)
-                            continue;
-
-                        Int32 Damage = 0;
-                        if (Info.ActionSort == 2 || Info.ActionSort == 6 || Info.ActionSort == 11 || Info.ActionSort == 19 || Info.ActionSort == 20)
-                            Damage = (Int32)Info.Power;
-                        else if (Info.ActionSort == 7)
-                            Damage = Targets1[i].MaxHP;
-                        else if (Info.ActionSort == 26)
-                            Damage = (Int32)(Targets1[i].CurHP * ((Double)(Info.Power - 30000) / 100.00));
-                        else
-                        {
-                            if (Targets1[i].IsPlayer())
-                                Damage = MyMath.GetDamageMonster2Player(Attacker, (Targets1[i] as Player), Attacker.MagicType, Attacker.MagicLevel);
-                        }
-
-                        //TargetType -> 8; Passive skill
-                        if (Info.Target != 8 && Info.Success != 100 && !MyMath.Success(Info.Success))
-                            Damage = 0;
-
-                        if (Info.ActionSort == 2)
-                        {
-                            if (Targets1[i].CurHP + Damage >= Targets1[i].MaxHP)
-                                Targets1[i].CurHP = Targets1[i].MaxHP;
-                            else
-                                Targets1[i].CurHP += Damage;
-
-                            if (Targets1[i].IsPlayer())
-                            {
-                                (Targets1[i] as Player).Send(MsgUserAttrib.Create(Targets1[i], Targets1[i].CurHP, MsgUserAttrib.Type.Life));
-                                if ((Targets1[i] as Player).Team != null)
-                                    World.BroadcastTeamMsg((Targets1[i] as Player).Team, MsgUserAttrib.Create((Targets1[i] as Player), (Targets1[i] as Player).CurHP, MsgUserAttrib.Type.Life));
-                            }
-                        }
-                        else if (Info.ActionSort == 6)
-                        {
-                            switch (Attacker.MagicType)
-                            {
-                                case 1015:
-                                    {
-                                        if (Targets1[i].AccuracyEndTime != 0)
-                                        {
-                                            Targets1[i].AccuracyEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                            break;
-                                        }
-
-                                        Targets1[i].AccuracyEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                        Targets1[i].StarOfAccuracyEndTime = 0;
-                                        Targets1[i].DexterityBonus = ((Double)(Damage - 30000) / 100.00);
-                                        Targets1[i].AddFlag(Player.Flag.Accuracy);
-                                        if (Targets1[i].IsPlayer())
-                                            MyMath.GetEquipStats((Targets1[i] as Player));
-
-                                        if (Targets1[i].IsPlayer())
-                                            World.BroadcastRoomMsg((Targets1[i] as Player), MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags), true);
-                                        else
-                                            World.BroadcastRoomMsg(Targets1[i], MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags));
-                                        break;
-                                    }
-                                case 1020:
-                                    {
-                                        if (Targets1[i].ShieldEndTime != 0)
-                                        {
-                                            Targets1[i].ShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                            break;
-                                        }
-
-                                        Targets1[i].ShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                        Targets1[i].MagicShieldEndTime = 0;
-                                        Targets1[i].DefenceBonus = ((Double)(Damage - 30000) / 100.00);
-                                        Targets1[i].AddFlag(Player.Flag.Shield);
-                                        if (Targets1[i].IsPlayer())
-                                            MyMath.GetEquipStats((Targets1[i] as Player));
-
-                                        if (Targets1[i].IsPlayer())
-                                            World.BroadcastRoomMsg((Targets1[i] as Player), MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags), true);
-                                        else
-                                            World.BroadcastRoomMsg(Targets1[i], MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags));
-                                        break;
-                                    }
-                                case 1025:
-                                    {
-                                        if (Targets1[i].SupermanEndTime != 0)
-                                        {
-                                            Targets1[i].SupermanEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                            break;
-                                        }
-
-                                        Targets1[i].SupermanEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                        Targets1[i].StigmaEndTime = 0;
-                                        Targets1[i].AttackBonus = ((Double)(Damage - 30000) / 100.00);
-                                        Targets1[i].AddFlag(Player.Flag.SuperMan);
-                                        Targets1[i].DelFlag(Player.Flag.Stigma);
-                                        if (Targets1[i].IsPlayer())
-                                            MyMath.GetEquipStats((Targets1[i] as Player));
-
-                                        if (Targets1[i].IsPlayer())
-                                            World.BroadcastRoomMsg((Targets1[i] as Player), MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags), true);
-                                        else
-                                            World.BroadcastRoomMsg(Targets1[i], MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags));
-                                        break;
-                                    }
-                                case 1075:
-                                    {
-                                        if (Targets1[i].InvisibilityEndTime != 0)
-                                        {
-                                            Targets1[i].InvisibilityEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                            break;
-                                        }
-
-                                        Targets1[i].InvisibilityEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                        Targets1[i].AddFlag(Player.Flag.Invisibility);
-
-                                        if (Targets1[i].IsPlayer())
-                                            World.BroadcastRoomMsg((Targets1[i] as Player), MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags), true);
-                                        else
-                                            World.BroadcastRoomMsg(Targets1[i], MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags));
-                                        break;
-                                    }
-                                case 1085:
-                                    {
-                                        if (Targets1[i].StarOfAccuracyEndTime != 0)
-                                        {
-                                            Targets1[i].StarOfAccuracyEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                            break;
-                                        }
-
-                                        Targets1[i].StarOfAccuracyEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                        Targets1[i].AccuracyEndTime = 0;
-                                        Targets1[i].DexterityBonus = ((Double)(Damage - 30000) / 100.00);
-                                        Targets1[i].AddFlag(Player.Flag.Accuracy);
-                                        if (Targets1[i].IsPlayer())
-                                            MyMath.GetEquipStats((Targets1[i] as Player));
-
-                                        if (Targets1[i].IsPlayer())
-                                            World.BroadcastRoomMsg((Targets1[i] as Player), MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags), true);
-                                        else
-                                            World.BroadcastRoomMsg(Targets1[i], MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags));
-                                        break;
-                                    }
-                                case 1090:
-                                    {
-                                        if (Targets1[i].MagicShieldEndTime != 0)
-                                        {
-                                            Targets1[i].MagicShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                            break;
-                                        }
-
-                                        Targets1[i].MagicShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                        Targets1[i].ShieldEndTime = 0;
-                                        Targets1[i].DefenceBonus = ((Double)(Damage - 30000) / 100.00);
-                                        Targets1[i].AddFlag(Player.Flag.Shield);
-                                        if (Targets1[i].IsPlayer())
-                                            MyMath.GetEquipStats((Targets1[i] as Player));
-
-                                        if (Targets1[i].IsPlayer())
-                                            World.BroadcastRoomMsg((Targets1[i] as Player), MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags), true);
-                                        else
-                                            World.BroadcastRoomMsg(Targets1[i], MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags));
-                                        break;
-                                    }
-                                case 1095:
-                                    {
-                                        if (Targets1[i].StigmaEndTime != 0)
-                                        {
-                                            Targets1[i].StigmaEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                            break;
-                                        }
-
-                                        Targets1[i].StigmaEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                        Targets1[i].SupermanEndTime = 0;
-                                        Targets1[i].AttackBonus = ((Double)(Damage - 30000) / 100.00);
-                                        Targets1[i].AddFlag(Player.Flag.Stigma);
-                                        Targets1[i].DelFlag(Player.Flag.SuperMan);
-                                        if (Targets1[i].IsPlayer())
-                                            MyMath.GetEquipStats((Targets1[i] as Player));
-
-                                        if (Targets1[i].IsPlayer())
-                                            World.BroadcastRoomMsg((Targets1[i] as Player), MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags), true);
-                                        else
-                                            World.BroadcastRoomMsg(Targets1[i], MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags));
-                                        break;
-                                    }
-                                case 1110:
-                                    {
-                                        if (Targets1[i].CycloneEndTime != 0)
-                                        {
-                                            Targets1[i].CycloneEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                            break;
-                                        }
-
-                                        Targets1[i].CycloneEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                        Targets1[i].SpeedBonus = ((Double)(Damage - 30000) / 100.00);
-                                        Targets1[i].AddFlag(Player.Flag.Cyclone);
-                                        if (Targets1[i].IsPlayer())
-                                            MyMath.GetEquipStats((Targets1[i] as Player));
-
-                                        if (Targets1[i].IsPlayer())
-                                            World.BroadcastRoomMsg((Targets1[i] as Player), MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags), true);
-                                        else
-                                            World.BroadcastRoomMsg(Targets1[i], MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags));
-                                        break;
-                                    }
-                                case 10203:
-                                    {
-                                        if (Targets1[i].MagicShieldEndTime != 0)
-                                        {
-                                            Targets1[i].MagicShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                            break;
-                                        }
-
-                                        Targets1[i].MagicShieldEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                        Targets1[i].ShieldEndTime = 0;
-                                        Targets1[i].DefenceBonus = ((Double)(Damage - 30000) / 100.00);
-                                        Targets1[i].AddFlag(Player.Flag.Shield);
-                                        if (Targets1[i].IsPlayer())
-                                            MyMath.GetEquipStats((Targets1[i] as Player));
-
-                                        if (Targets1[i].IsPlayer())
-                                            World.BroadcastRoomMsg((Targets1[i] as Player), MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags), true);
-                                        else
-                                            World.BroadcastRoomMsg(Targets1[i], MsgUserAttrib.Create(Targets1[i], Targets1[i].Flags, MsgUserAttrib.Type.Flags));
-                                        break;
-                                    }
-                            }
-                            Damage = 0;
-                        }
-                        else if (Info.ActionSort == 7)
-                        {
-                            if (Targets1[i].IsPlayer())
-                            {
-                                if (!Targets1[i].IsAlive())
-                                    (Targets1[i] as Player).Reborn(false);
-                            }
-                        }
-                        else if (Info.ActionSort == 11)
-                        {
-                            if (Targets1[i].IsPlayer())
-                            {
-                                if ((Targets1[i] as Player).XP + Damage >= 100)
-                                    (Targets1[i] as Player).XP = 100;
-                                else
-                                    (Targets1[i] as Player).XP += (Byte)Damage;
-                                (Targets1[i] as Player).Send(MsgUserAttrib.Create(Targets1[i], (Targets1[i] as Player).XP, MsgUserAttrib.Type.XP));
-                            }
-                        }
-                        else if (Info.ActionSort == 19)
-                        {
-                            if (Targets1[i].IsPlayer())
-                            {
-                                MonsterInfo Monster;
-                                if (Database.AllMonsters.TryGetValue(Damage, out Monster))
-                                {
-                                    (Targets1[i] as Player).TransformEndTime = Environment.TickCount + ((Int32)Info.Time * 1000);
-                                    (Targets1[i] as Player).AddTransform(Monster.Look);
-                                    Targets1[i].MinAtk = Monster.MinAtk;
-                                    Targets1[i].MaxAtk = Monster.MaxAtk;
-                                    Targets1[i].Defence = Monster.Defence;
-                                    Targets1[i].MagicAtk = 0;
-                                    Targets1[i].MagicDef = Monster.MagicDef;
-                                    Targets1[i].MagicBlock = 0;
-                                    Targets1[i].Dodge = Monster.Dodge;
-                                    Targets1[i].Weight = 0;
-                                    Targets1[i].Dexterity = 1000;
-                                    Targets1[i].AtkRange = Monster.AtkRange;
-                                    Targets1[i].AtkSpeed = Monster.AtkSpeed;
-                                    Targets1[i].AtkType = 2;
-                                    Targets1[i].Bless = 1.00;
-                                    Targets1[i].GemBonus = 1.00;
-                                    Targets1[i].CurHP = (Int32)((Double)Monster.Life * ((Double)Targets1[i].CurHP / (Double)Targets1[i].MaxHP));
-                                    Targets1[i].MaxHP = Monster.Life;
-
-                                    (Targets1[i] as Player).Send(MsgUserAttrib.Create(Targets1[i], Targets1[i].CurHP, MsgUserAttrib.Type.Life));
-                                    (Targets1[i] as Player).Send(MsgUserAttrib.Create(Targets1[i], Targets1[i].MaxHP, (MsgUserAttrib.Type.Life + 1)));
-                                    if ((Targets1[i] as Player).Team != null)
-                                    {
-                                        World.BroadcastTeamMsg((Targets1[i] as Player).Team, MsgUserAttrib.Create((Targets1[i] as Player), (Targets1[i] as Player).CurHP, MsgUserAttrib.Type.Life));
-                                        World.BroadcastTeamMsg((Targets1[i] as Player).Team, MsgUserAttrib.Create((Targets1[i] as Player), (Targets1[i] as Player).MaxHP, (MsgUserAttrib.Type.Life + 1)));
-                                    }
-                                    World.BroadcastRoomMsg((Targets1[i] as Player), MsgUserAttrib.Create(Targets1[i], Targets1[i].Look, MsgUserAttrib.Type.Look), true);
-                                }
-                            }
-                            Damage = 0;
-                        }
-                        else if (Info.ActionSort == 20)
-                        {
-                            if (Targets1[i].IsPlayer())
-                            {
-                                if ((Targets1[i] as Player).CurMP + Damage >= (Targets1[i] as Player).MaxMP)
-                                    (Targets1[i] as Player).CurMP = (Targets1[i] as Player).MaxMP;
-                                else
-                                    (Targets1[i] as Player).CurMP += (UInt16)Damage;
-                                (Targets1[i] as Player).Send(MsgUserAttrib.Create(Targets1[i], (Targets1[i] as Player).CurMP, MsgUserAttrib.Type.Mana));
-                            }
-                        }
-                        else
-                        {
-                            if (Targets1[i].IsPlayer())
-                                (Targets1[i] as Player).RemoveDefDura();
-                            if (!Targets1[i].IsPlayer() || (Targets1[i].IsPlayer() && !(Targets1[i] as Player).Reflect()))
-                            {
-                                if (Damage >= Targets1[i].CurHP)
-                                {
-                                    if (Targets1[i].IsPlayer())
-                                        (Targets1[i] as Player).Die();
-                                    else if (Targets1[i].IsMonster())
-                                        (Targets1[i] as Monster).Die(Attacker.UniqId);
-                                    else if (Targets1[i].IsTerrainNPC())
-                                    {
-                                        World.BroadcastMapMsg(Attacker.Map, MsgInteract.Create(Attacker, Targets1[i], 1, MsgInteract.Action.Kill));
-                                        (Targets1[i] as TerrainNPC).Die();
-                                    }
-                                    if (!Targets1[i].IsTerrainNPC())
-                                        World.BroadcastMapMsg(Attacker.Map, MsgInteract.Create(Attacker, Targets1[i], 1, MsgInteract.Action.Kill));
-                                }
-                                else
-                                {
-                                    Targets1[i].CurHP -= Damage;
-                                    if (Targets1[i].IsPlayer())
-                                    {
-                                        (Targets1[i] as Player).Send(MsgUserAttrib.Create(Targets1[i], Targets1[i].CurHP, MsgUserAttrib.Type.Life));
-                                        if ((Targets1[i] as Player).Team != null)
-                                            World.BroadcastTeamMsg((Targets1[i] as Player).Team, MsgUserAttrib.Create(Targets1[i], Targets1[i].CurHP, MsgUserAttrib.Type.Life));
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                if (Damage > 2000)
-                                    Damage = 2000;
-
-                                World.BroadcastMapMsg(Attacker.Map, MsgInteract.Create(Targets1[i], Attacker, Damage, MsgInteract.Action.ReflectMagic));
-                                if (Damage >= Attacker.CurHP)
-                                {
-                                    Attacker.Die(0);
-                                    World.BroadcastMapMsg((Targets1[i] as Player), MsgInteract.Create(Targets1[i], Attacker, 1, MsgInteract.Action.Kill), true);
-                                }
-                                else
-                                {
-                                    Attacker.CurHP -= Damage;
-                                    World.BroadcastMapMsg(Attacker.Map, MsgUserAttrib.Create(Attacker, Attacker.CurHP, MsgUserAttrib.Type.Life));
-                                }
-                                Reflected = true;
-                            }
-                        }
-
-                        if (Target != null && Info.ActionSort != 11 && Info.ActionSort != 2 && !Reflected)
-                            World.BroadcastMapMsg(Attacker.Map, MsgMagicEffect.Create(Attacker, Target, Damage, X, Y));
-                        else if (!Reflected)
-                            Targets.Add(Targets1[i], Damage);
-                    }
-
-                    if (Target == null || Info.ActionSort == 11 || Info.ActionSort == 2)
-                        World.BroadcastMapMsg(Attacker.Map, MsgMagicEffect.Create(Attacker, Targets, X, Y));
+                        attacker.RemoveAtkDura();
                 }
-                catch (Exception Exc) { Program.WriteLine(Exc); }
+                #endregion
+
+                #region Player: Add Exp
+                if (aAttacker.IsPlayer())
+                {
+                    attacker.AddExp(Exp, true);
+                    if (MagicExp > 0 && Info.Sort != MagicSort.AtkStatus)
+                        attacker.AddMagicExp(attacker.MagicType, MagicExp);
+                    else if (MagicExp > 0)
+                        attacker.AddMagicExp(attacker.MagicType, 1);
+                }
+                #endregion
+
+                if (aTarget == null || Info.Sort == MagicSort.DispatchXP || Info.Sort == MagicSort.RecoverSingleHP)
+                {
+                    var msg = new MsgMagicEffect(aAttacker, targets, aTargetX, aTargetY);
+
+                    if (aAttacker.IsPlayer())
+                        World.BroadcastMapMsg(attacker, msg, true);
+                    else
+                        World.BroadcastMapMsg(aAttacker, msg);
+                }
+
+                #region Player: Activate the weapon attribute (e.g. Poison Blade)
+                if (aAttacker.IsPlayer() && aAttacker.Map.Id != 1039)
+                    Battle.WeaponAttribute(attacker, null);
+                #endregion
             }
-            #endregion
+            catch (Exception exc) { sLogger.Error(exc); }
         }
     }
 }

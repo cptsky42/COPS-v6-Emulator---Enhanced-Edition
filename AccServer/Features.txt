@@ -1,8 +1,0 @@
-﻿1. Support of multiple game server
-2. Easy to use XML account file
-3. Account creation with the prefix NEW
-4. Multi-threaded network I/O interface
-5. Asynchronous sockets
-6. Support of custom keys for the ciphers
-7. Support of banned IPs with jokers.
-8. Easy to use XML configuration file

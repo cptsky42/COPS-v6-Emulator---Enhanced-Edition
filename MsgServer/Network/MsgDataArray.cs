@@ -1,125 +1,153 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2011 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using COServer.Entities;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgDataArray : Msg
+    public class MsgDataArray : Msg
     {
-        public const Int16 Id = _MSG_DATAARRAY;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_DATAARRAY; } }
 
-        [StructLayout(LayoutKind.Sequential , Pack = 1)]
-        public struct MsgInfo
-        {
-            public MsgHeader Header;
-            public Int32 Unknow; //K = 1280? (Probably Action, but not used on CO2)
-            public Int32 MainUID;
-            public Int32 FirstTreasureUID;
-            public Int32 SecondTreasureUID;
-            public Int32 FirstGemUID;
-            public Int32 SecondGemUID;
-        };
+		//--------------- Internal Members ---------------
+		private Byte __Action = 0;
+		private Byte __Amount = 0;
+		private Int32[] __Data = new Int32[1];
+		//------------------------------------------------
 
-        public static Byte[] Create(Int32 MainUID, Int32 FirstTreasureUID, Int32 SecondTreasureUID, Int32 FirstGemUID, Int32 SecondGemUID)
+		public Byte Action
+		{
+			get { return __Action; }
+			set { __Action = value; mBuf[4] = value; }
+		}
+
+		public Byte Amount
+		{
+			get { return __Amount; }
+			set { __Amount = value; mBuf[5] = value; }
+		}
+
+		public Int32[] Data
+		{
+			get { return __Data; }
+			set
+			{
+				__Data = value;
+				for (int i = 0; i < value.Length; ++i)
+					WriteInt32(8 + (i * 4), value[i]);
+			}
+		}
+
+		/// <summary>
+		/// Create a message object from the specified buffer.
+		/// </summary>
+		/// <param name="aBuf">The buffer containing the message.</param>
+		/// <param name="aIndex">The index where the message is starting in the buffer.</param>
+		/// <param name="aLength">The length of the message.</param>
+		internal MsgDataArray(Byte[] aBuf, int aIndex, int aLength)
+			: base(aBuf, aIndex, aLength)
+		{
+			__Action = mBuf[4];
+			__Amount = mBuf[5];
+
+			// mBuf[6] & mBuf[7] => Padding
+
+			__Data = new Int32[__Amount];
+			for (Byte i = 0; i < __Amount; ++i)
+				__Data[i] = BitConverter.ToInt32(mBuf, 8 + (i * 4));
+		}
+
+
+		/// <summary>
+		/// Process the message for the specified client.
+		/// </summary>
+		/// <param name="aClient">The client who sent the message.</param>
+		public override void Process(Client aClient)
         {
             try
             {
-                MsgInfo* pMsg = stackalloc MsgInfo[1];
-                pMsg->Header.Length = (Int16)sizeof(MsgInfo);
-                pMsg->Header.Type = Id;
+				switch (Action)
+				{
+                    case 0:
+                        {
+                            if (Amount != 5)
+                                return;
 
-                pMsg->Unknow = 1280;
-                pMsg->MainUID = MainUID;
-                pMsg->FirstTreasureUID = FirstTreasureUID;
-                pMsg->SecondTreasureUID = SecondTreasureUID;
-                pMsg->FirstGemUID = FirstGemUID;
-                pMsg->SecondGemUID = SecondGemUID;
+                            Player player = aClient.Player;
 
-                Byte[] Out = new Byte[pMsg->Header.Length];
-                Marshal.Copy((IntPtr)pMsg, Out, 0, Out.Length);
+                            Item item = player.GetItemByUID(Data[0]);
+                            Item firstTreasure = player.GetItemByUID(Data[1]);
+                            Item secondTreasure = player.GetItemByUID(Data[2]);
 
-                return Out;
+                            if (item == null || firstTreasure == null || secondTreasure == null)
+                                return;
+
+                            if (firstTreasure.Craft != secondTreasure.Craft)
+                                return;
+
+                            if ((item.Craft == 0 && firstTreasure.Craft != 1) || (item.Craft != 0 && item.Craft != firstTreasure.Craft))
+                                return;
+
+                            if (item.Craft >= 9)
+                                return;
+
+                            Int16 MainType = (Int16)(item.Type / 1000);
+                            Int16 FirstTreasureType = (Int16)(firstTreasure.Type / 1000);
+                            Int16 SecondTreasureType = (Int16)(secondTreasure.Type / 1000);
+
+                            if ((Int16)(MainType / 100) == 4 && (((Int16)(FirstTreasureType / 100) != 4 || (Int16)(SecondTreasureType / 100) != 4)))
+                                return;
+
+                            if ((Int16)(MainType / 100) == 5 && (((Int16)(FirstTreasureType / 100) != 5 || (Int16)(SecondTreasureType / 100) != 5)))
+                                return;
+
+                            if ((Int16)(MainType / 100) == 9 && (((Int16)(FirstTreasureType / 100) != 9 || (Int16)(SecondTreasureType / 100) != 9)))
+                                return;
+
+                            if ((Int16)(MainType / 100) != 4 && (Int16)(MainType / 100) != 5 && (Int16)(MainType / 100) != 9)
+                                if (MainType != FirstTreasureType || MainType != SecondTreasureType)
+                                    return;
+
+                            if (item.Craft >= 5)
+                            {
+                                Item firstGem = player.GetItemByUID(Data[3]);
+                                Item secondGem = player.GetItemByUID(Data[4]);
+
+                                if (firstGem == null || secondGem == null)
+                                    return;
+
+                                player.DelItem(firstGem, true);
+                                player.DelItem(secondGem, true);
+                            }
+
+                            player.DelItem(firstTreasure, true);
+                            player.DelItem(secondTreasure, true);
+
+                            ++item.Craft;
+                            player.Send(new MsgItemInfo(item, MsgItemInfo.Action.Update));
+                            break;
+                        }
+					default:
+						{
+                            sLogger.Error("Action {0} is not implemented for MsgDataArray.", Action);
+                            break;
+						}
+				}
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
-        }
-
-        public static void Process(Client Client, Byte[] Buffer)
-        {
-            try
-            {
-                if (Client == null || Buffer == null || Client.User == null)
-                    return;
-
-                Int16 MsgLength = (Int16)((Buffer[0x01] << 8) + Buffer[0x00]);
-                Int16 MsgId = (Int16)((Buffer[0x03] << 8) + Buffer[0x02]);
-                Int32 Unknow = (Int32)((Buffer[0x07] << 24) + (Buffer[0x06] << 16) + (Buffer[0x05] << 8) + Buffer[0x04]);
-                Int32 MainUID = (Int32)((Buffer[0x0B] << 24) + (Buffer[0x0A] << 16) + (Buffer[0x09] << 8) + Buffer[0x08]);
-                Int32 FirstTreasureUID = (Int32)((Buffer[0x0F] << 24) + (Buffer[0x0E] << 16) + (Buffer[0x0D] << 8) + Buffer[0x0C]);
-                Int32 SecondTreasureUID = (Int32)((Buffer[0x13] << 24) + (Buffer[0x12] << 16) + (Buffer[0x11] << 8) + Buffer[0x10]);
-                Int32 FirstGemUID = (Int32)((Buffer[0x17] << 24) + (Buffer[0x16] << 16) + (Buffer[0x15] << 8) + Buffer[0x14]);
-                Int32 SecondGemUID = (Int32)((Buffer[0x1B] << 24) + (Buffer[0x1A] << 16) + (Buffer[0x19] << 8) + Buffer[0x18]);
-
-                Player Player = Client.User;
-
-                Item MainItem = Player.GetItemByUID(MainUID);
-                Item FirstTreasure = Player.GetItemByUID(FirstTreasureUID);
-                Item SecondTreasure = Player.GetItemByUID(SecondTreasureUID);
-
-                if (MainItem == null || FirstTreasure == null || SecondTreasure == null)
-                    return;
-
-                if (FirstTreasure.Craft != SecondTreasure.Craft)
-                    return;
-
-                if ((MainItem.Craft == 0 && FirstTreasure.Craft != 1) || (MainItem.Craft != 0 && MainItem.Craft != FirstTreasure.Craft))
-                    return;
-
-                if (MainItem.Craft >= 9)
-                    return;
-
-                Int16 MainType = (Int16)(MainItem.Id / 1000);
-                Int16 FirstTreasureType = (Int16)(FirstTreasure.Id / 1000);
-                Int16 SecondTreasureType = (Int16)(SecondTreasure.Id / 1000);
-
-                if (FirstTreasureType != 730 && SecondTreasureType != 730)
-                {
-                    if ((Int16)(MainType / 100) == 4 && (((Int16)(FirstTreasureType / 100) != 4 || (Int16)(SecondTreasureType / 100) != 4)))
-                        return;
-
-                    if ((Int16)(MainType / 100) == 5 && (((Int16)(FirstTreasureType / 100) != 5 || (Int16)(SecondTreasureType / 100) != 5)))
-                        return;
-
-                    if ((Int16)(MainType / 100) == 9 && (((Int16)(FirstTreasureType / 100) != 9 || (Int16)(SecondTreasureType / 100) != 9)))
-                        return;
-
-                    if ((Int16)(MainType / 100) != 4 && (Int16)(MainType / 100) != 5 && (Int16)(MainType / 100) != 9)
-                        if (MainType != FirstTreasureType || MainType != SecondTreasureType)
-                            return;
-                }
-
-                if (MainItem.Craft >= 5)
-                {
-                    Item FirstGem = Player.GetItemByUID(FirstGemUID);
-                    Item SecondGem = Player.GetItemByUID(SecondGemUID);
-
-                    if (FirstGem == null || SecondGem == null)
-                        return;
-
-                    Player.DelItem(FirstGem, true);
-                    Player.DelItem(SecondGem, true);
-                }
-
-                Player.DelItem(FirstTreasure, true);
-                Player.DelItem(SecondTreasure, true);
-
-                MainItem.Craft++;
-                Player.Send(MsgItemInfo.Create(MainItem, MsgItemInfo.Action.Update));
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
+            catch (Exception exc) { sLogger.Error(exc); }
         }
     }
 }

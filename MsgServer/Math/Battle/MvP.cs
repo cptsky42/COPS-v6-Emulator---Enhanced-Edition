@@ -1,10 +1,10 @@
 // * Created by Jean-Philippe Boivin
 // * Copyright © 2011
-// * Logik. Project
+// * COPS v6 Emulator
 
 using System;
 using COServer.Entities;
-using CO2_CORE_DLL.IO;
+using COServer.Network;
 
 namespace COServer
 {
@@ -54,15 +54,15 @@ namespace COServer
             if (Target.LuckyTime > 0 && MyMath.Success(10))
             {
                 Damage = 1;
-                World.BroadcastRoomMsg(Target, Network.MsgName.Create(Target.UniqId, "LuckyGuy", Network.MsgName.Action.RoleEffect), true);
+                World.BroadcastRoomMsg(Target, new MsgName(Target.UniqId, "LuckyGuy", Network.MsgName.NameAct.RoleEffect), true);
             }
             return (Int32)Math.Round(Damage, 0);
         }
 
-        public static Int32 GetDamageMonster2Player(Monster Attacker, Player Target, Int16 MagicType, Byte MagicLevel)
+        public static Int32 GetDamageMonster2Player(Monster Attacker, Player Target, UInt16 MagicType, Byte MagicLevel)
         {
-            MagicType.Entry Info = new MagicType.Entry();
-            Database2.AllMagics.TryGetValue((MagicType * 10) + MagicLevel, out Info);
+            Magic.Info Info = new Magic.Info();
+            Database.AllMagics.TryGetValue((MagicType * 10) + MagicLevel, out Info);
 
             Double Damage = 0;
 
@@ -72,7 +72,7 @@ namespace COServer
             else if (Target.Metempsychosis >= 2)
                 Reborn -= 0.50; //50%
 
-            if (Info.MagicType == 1115 || (Info.WeaponSubType != 0 && Info.WeaponSubType != 500))
+            if (Info.Type == 1115 || (Info.WeaponSubtype != 0 && Info.WeaponSubtype != 500))
             {
                 Damage = MyMath.Generate(Attacker.MinAtk, Attacker.MaxAtk);
                 if (Info.Power > 30000)
@@ -83,7 +83,7 @@ namespace COServer
 
                 Damage -= Target.Defence;
             }
-            else if (Info.WeaponSubType == 500)
+            else if (Info.WeaponSubtype == 500)
             {
                 Damage = MyMath.Generate(Attacker.MinAtk, Attacker.MaxAtk);
                 if (Info.Power > 30000)
@@ -118,7 +118,7 @@ namespace COServer
             if (Target.LuckyTime > 0 && MyMath.Success(10))
             {
                 Damage = 1;
-                World.BroadcastRoomMsg(Target, Network.MsgName.Create(Target.UniqId, "LuckyGuy", Network.MsgName.Action.RoleEffect), true);
+                World.BroadcastRoomMsg(Target, new MsgName(Target.UniqId, "LuckyGuy", Network.MsgName.NameAct.RoleEffect), true);
             }
             return (Int32)Math.Round(Damage, 0);
         }
@@ -133,9 +133,9 @@ namespace COServer
 
             Item Item = Target.GetItemByPos(3);
             if (Item != null)
-                MinDmg -= (Item.Id % 10);
+                MinDmg -= (Item.Type % 10);
 
-            if (Item != null && (Item.Id % 10) == 0)
+            if (Item != null && (Item.Type % 10) == 0)
                 MinDmg = 1;
 
             MinDmg = Math.Max(1, MinDmg);

@@ -1,6 +1,6 @@
 ﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2011
-// * Logik. Project
+// * Copyright © 2011, 2015
+// * COPS v6 Emulator
 
 using System;
 using System.Collections.Generic;
@@ -39,23 +39,23 @@ namespace COServer
                     return;
                 }
 
-                if (Battle.Magic.WeaponSkill(Attacker, Target))
+                if (Battle.WeaponSkill(Attacker, Target))
                     return;
 
                 Attacker.LastAttackTick = Environment.TickCount;
                 if (!MyMath.Success(Attacker.Dexterity))
                 {
-                    World.BroadcastMapMsg(Attacker, MsgInteract.Create(Attacker, Target, 0, (MsgInteract.Action)Attacker.AtkType), true);
+                    World.BroadcastMapMsg(Attacker, new MsgInteract(Attacker, Target, 0, (MsgInteract.Action)Attacker.AtkType), true);
                     return;
                 }
 
                 Int32 Damage = 0;
                 Damage = MyMath.GetDamagePlayer2Environment(Attacker, Target);
 
-                if (Attacker.Map != 1039)
+                if (Attacker.Map.Id !=  1039)
                     Attacker.RemoveAtkDura();
 
-                World.BroadcastMapMsg(Attacker, MsgInteract.Create(Attacker, Target, Damage, MsgInteract.Action.Attack), true);
+                World.BroadcastMapMsg(Attacker, new MsgInteract(Attacker, Target, Damage, MsgInteract.Action.Attack), true);
                 if (Damage >= Target.CurHP)
                 {
                     if (Attacker.XP < 99)
@@ -64,48 +64,48 @@ namespace COServer
                     Target.GetAttacked(Attacker, Target.CurHP);
 
                     Int32 CurHP = Target.CurHP;
-                    World.BroadcastMapMsg(Attacker, MsgInteract.Create(Attacker, Target, 1, MsgInteract.Action.Kill), true);
+                    World.BroadcastMapMsg(Attacker, new MsgInteract(Attacker, Target, 1, MsgInteract.Action.Kill), true);
                     Target.Die();
 
                     if (Target.Type == 21 || Target.Type == 22)
                     {
-                        Int32 Exp = AdjustExp(CurHP, Attacker, Target);
+                        UInt32 Exp = AdjustExp(CurHP, Attacker, Target);
                         Attacker.AddExp(Exp, true);
 
                         Int32 Bonus = (Int32)(Target.MaxHP * 0.05);
 
-                        Int32 BonusExp = AdjustExp(Bonus, Attacker, Target);
+                        UInt32 BonusExp = AdjustExp(Bonus, Attacker, Target);
                         Attacker.AddExp(BonusExp, true);
 
                         Item RightHand = Attacker.GetItemByPos(4);
-                        if (RightHand != null && ((RightHand.Id / 100000) == 4 || (RightHand.Id / 100000) == 5))
-                            Attacker.AddWeaponSkillExp((Int16)(RightHand.Id / 1000), Exp);
+                        if (RightHand != null && ((RightHand.Type / 100000) == 4 || (RightHand.Type / 100000) == 5))
+                            Attacker.AddWeaponSkillExp((UInt16)(RightHand.Type / 1000), Exp);
                         else if (RightHand == null)
                             Attacker.AddWeaponSkillExp(0, Exp);
 
                         Item LeftHand = Attacker.GetItemByPos(5);
-                        if (LeftHand != null && ((LeftHand.Id / 100000) == 4 || (LeftHand.Id / 100000) == 9))
-                            Attacker.AddWeaponSkillExp((Int16)(LeftHand.Id / 1000), Exp);
+                        if (LeftHand != null && ((LeftHand.Type / 100000) == 4 || (LeftHand.Type / 100000) == 9))
+                            Attacker.AddWeaponSkillExp((UInt16)(LeftHand.Type / 1000), Exp);
                     }
                     else if (Target.Type == (Byte)TerrainNPC.NpcType.SynFlag)
                     {
                         if (Attacker.Syndicate != null)
                         {
-                            if (World.AllMaps[Attacker.Map].InWar)
-                                if (Attacker.Syndicate.UniqId != World.AllMaps[Attacker.Map].Holder)
-                                {
-                                    Attacker.Money += (Damage / 10000);
-                                    Attacker.Send(MsgUserAttrib.Create(Attacker, Attacker.Money, MsgUserAttrib.Type.Money));
+                            // TODO re-enable donation gain on pole
+                            //if (Attacker.Map.InWar)
+                            //    if (Attacker.Syndicate.Id != Attacker.Map.Holder)
+                            //    {
+                            //        Attacker.Money += (UInt32)(Damage / 10000);
+                            //        Attacker.Send(new MsgUserAttrib(Attacker, Attacker.Money, MsgUserAttrib.AttributeType.Money));
 
-                                    Syndicate.Member Member = Attacker.Syndicate.GetMemberInfo(Attacker.UniqId);
-                                    if (Member != null)
-                                    {
-                                        Member.Donation += (Damage / 10000);
-                                        Attacker.Syndicate.Money += (Damage / 10000);
-                                        Attacker.Send(MsgSynAttrInfo.Create(Attacker.UniqId, Attacker.Syndicate));
-                                        World.SynThread.AddToQueue(Attacker.Syndicate, "Money", Attacker.Syndicate.Money);
-                                    }
-                                }
+                            //        Syndicate.Member Member = Attacker.Syndicate.GetMemberInfo(Attacker.UniqId);
+                            //        if (Member != null)
+                            //        {
+                            //            Member.Donation += (UInt32)(Damage / 10000);
+                            //            Attacker.Syndicate.Money += (UInt32)(Damage / 10000);
+                            //            Attacker.Send(new MsgSynAttrInfo(Attacker.UniqId, Attacker.Syndicate));
+                            //        }
+                            //    }
                         }
                     }
                 }
@@ -116,49 +116,49 @@ namespace COServer
 
                     if (Target.Type == 21 || Target.Type == 22)
                     {
-                        Int32 Exp = AdjustExp(Damage, Attacker, Target);
+                        UInt32 Exp = AdjustExp(Damage, Attacker, Target);
                         Attacker.AddExp(Exp, true);
 
                         Item RightHand = Attacker.GetItemByPos(4);
-                        if (RightHand != null && ((RightHand.Id / 100000) == 4 || (RightHand.Id / 100000) == 5))
-                            Attacker.AddWeaponSkillExp((Int16)(RightHand.Id / 1000), Exp);
+                        if (RightHand != null && ((RightHand.Type / 100000) == 4 || (RightHand.Type / 100000) == 5))
+                            Attacker.AddWeaponSkillExp((UInt16)(RightHand.Type / 1000), Exp);
                         else if (RightHand == null)
                             Attacker.AddWeaponSkillExp(0, Exp);
 
                         Item LeftHand = Attacker.GetItemByPos(5);
-                        if (LeftHand != null && ((LeftHand.Id / 100000) == 4 || (LeftHand.Id / 100000) == 9))
-                            Attacker.AddWeaponSkillExp((Int16)(LeftHand.Id / 1000), Exp);
+                        if (LeftHand != null && ((LeftHand.Type / 100000) == 4 || (LeftHand.Type / 100000) == 9))
+                            Attacker.AddWeaponSkillExp((UInt16)(LeftHand.Type / 1000), Exp);
                     }
                     else if (Target.Type == (Byte)TerrainNPC.NpcType.SynFlag)
                     {
                         if (Attacker.Syndicate != null)
                         {
-                            if (World.AllMaps[Attacker.Map].InWar)
-                                if (Attacker.Syndicate.UniqId != World.AllMaps[Attacker.Map].Holder)
-                                {
-                                    Attacker.Money += (Target.CurHP / 10000);
-                                    Attacker.Send(MsgUserAttrib.Create(Attacker, Attacker.Money, MsgUserAttrib.Type.Money));
+                            // TODO re-enable donation gain on pole
+                            //if (Attacker.Map.InWar)
+                            //    if (Attacker.Syndicate.Id != Attacker.Map.Holder)
+                            //    {
+                            //        Attacker.Money += (UInt32)(Target.CurHP / 10000);
+                            //        Attacker.Send(new MsgUserAttrib(Attacker, Attacker.Money, MsgUserAttrib.AttributeType.Money));
 
-                                    Syndicate.Member Member = Attacker.Syndicate.GetMemberInfo(Attacker.UniqId);
-                                    if (Member != null)
-                                    {
-                                        Member.Donation += (Target.CurHP / 10000);
-                                        Attacker.Syndicate.Money += (Target.CurHP / 10000);
-                                        Attacker.Send(MsgSynAttrInfo.Create(Attacker.UniqId, Attacker.Syndicate));
-                                        World.SynThread.AddToQueue(Attacker.Syndicate, "Money", Attacker.Syndicate.Money);
-                                    }
-                                }
+                            //        Syndicate.Member Member = Attacker.Syndicate.GetMemberInfo(Attacker.UniqId);
+                            //        if (Member != null)
+                            //        {
+                            //            Member.Donation += (UInt32)(Target.CurHP / 10000);
+                            //            Attacker.Syndicate.Money += (UInt32)(Target.CurHP / 10000);
+                            //            Attacker.Send(new MsgSynAttrInfo(Attacker.UniqId, Attacker.Syndicate));
+                            //        }
+                            //    }
                         }
                     }
                 }
 
-                if (Attacker.Map != 1039)
-                    Battle.Magic.WeaponAttribute(Attacker, Target);
+                if (Attacker.Map.Id !=  1039)
+                    Battle.WeaponAttribute(Attacker, Target);
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
+            catch (Exception exc) { sLogger.Error(exc); }
         }
 
-        public static Int32 AdjustExp(Int32 Damage, Player Attacker, TerrainNPC Target)
+        public static UInt32 AdjustExp(Int32 Damage, Player Attacker, TerrainNPC Target)
         {
             Byte Level = 125;
             if (Attacker.Level < 125)
@@ -186,7 +186,7 @@ namespace COServer
             else
                 Exp = 0.00;
 
-            return Math.Max(0, (Int32)Exp);
+            return Math.Max(0, (UInt32)Exp);
         }
     }
 }

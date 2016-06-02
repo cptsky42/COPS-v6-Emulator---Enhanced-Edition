@@ -1,164 +1,300 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using COServer.Threads;
-using COServer.Network;
+using System.Collections.Generic;
 using COServer.Entities;
-using CO2_CORE_DLL.Net.Sockets;
-using CO2_CORE_DLL.Security.Cryptography;
+using COServer.Network;
+using COServer.Network.Sockets;
+using COServer.Script;
+using COServer.Security.Cryptography;
+using COServer.Workers;
+using MoonSharp.Interpreter;
 
 namespace COServer
 {
-    public class Client
+    [MoonSharpUserData]
+    public class Client : IDisposable
     {
-        public Player User;
-        public NetworkClient Socket;
-        public COSAC Cipher;
-        public Language Language;
+        public Player Player = null;
+
+        /// <summary>
+        /// The name of the account.
+        /// </summary>
         public String Account;
-        public SByte AccLvl;
-        public Int32 Flags;
+        /// <summary>
+        /// The unique ID of the account.
+        /// </summary>
+        public UInt32 AccountID;
 
-        public Byte IO_UID = 0;
+        /// <summary>
+        /// The current task.
+        /// </summary>
+        public Task CurTask = null;
 
-        public enum Flag
+        /// <summary>
+        /// The data sent by the client for the task.
+        /// </summary>
+        public String TaskData = "";
+
+        /// <summary>
+        /// The IP address of the client.
+        /// </summary>
+        public String IPAddress { get { return mSocket.IPAddress; } }
+        /// <summary>
+        /// The port of the client.
+        /// </summary>
+        public UInt16 Port { get { return mSocket.Port; } }
+
+        /// <summary>
+        /// The TCP/IP socket of the client.
+        /// </summary>
+        private TcpSocket mSocket = null;
+        /// <summary>
+        /// The cipher for decrypting/encrypting the network trafic.
+        /// </summary>
+        private TqCipher mCipher = null;
+
+        /// <summary>
+        /// The worker processing networking I/O of the client.
+        /// </summary>
+        private INetworkWorker mNetworkWorker = null;
+
+        /// <summary>
+        /// Indicate whether or not the object is disposed.
+        /// </summary>
+        private bool mIsDisposed = false;
+
+        /// <summary>
+        /// Create a new client based on the newly connected socket.
+        /// </summary>
+        /// <param name="aSocket">The socket of the client.</param>
+        public Client(TcpSocket aSocket)
         {
-            None = 0x00,
-            Banned = 0x01,
-        };
+            mSocket = aSocket;
+            mCipher = new TqCipher();
 
-        public Int32 NpcUID;
-        public Boolean NpcAccept;
-        public Int32 NpcParam;
+            Account = null;
+            AccountID = 0;
 
-        public Client(NetworkClient Socket)
-        {
-            this.Socket = Socket;
-            this.Cipher = new COSAC();
-            this.Cipher.GenerateIV(Server.COSAC_PKey, Server.COSAC_GKey);
-            this.Language = Language.Fr;
-            this.Account = null;
-            this.AccLvl = -1;
-
-            this.NpcUID = -1;
+            mNetworkWorker = null;
+            Server.NetworkIO.AddClient(this, ref mNetworkWorker);
         }
-
-        public String GetStr(String Key) { return STR.Get(Language, Key); }
 
         ~Client()
         {
-            User = null;
-            Socket = null;
-            Cipher = null;
-            Account = null;
+            Dispose(false);
         }
 
-        public void Send(Byte[] Buffer)
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing,
+        /// or resetting unmanaged resources.
+        /// </summary>
+        public void Dispose()
         {
-            if (Buffer == null)
-                return; 
-
-            Byte[] Packet = new Byte[Buffer.Length];
-            Buffer.CopyTo(Packet, 0);
-            Server.NetworkIO.Send(this, Packet);
+            Dispose(true);
+            GC.SuppressFinalize(this);
         }
 
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing,
+        /// or resetting unmanaged resources.
+        /// </summary>
+        protected virtual void Dispose(bool aDisposing)
+        {
+            if (!mIsDisposed)
+            {
+                if (aDisposing)
+                {
+                    if (Player != null)
+                        Player.Dispose();
+
+                    if (mSocket != null)
+                        mSocket.Dispose();
+                }
+
+                Player = null;
+                CurTask = null;
+                mNetworkWorker = null;
+                mSocket = null;
+
+                mIsDisposed = true;
+            }
+        }
+
+        /// <summary>
+        /// Handle the client response to the exchange request.
+        /// </summary>
+        /// <param name="aAccountUID">The unique ID of the account.</param>
+        /// <param name="aToken">The authentication token.</param>
+        public unsafe void handleExchangeResponse(UInt32 aAccountUID, UInt32 aToken)
+        {
+            lock (mCipher)
+            {
+                UInt32* accountUID = &aAccountUID, token = &aToken;
+                mCipher.GenerateAltKey(*((Int32*)token), *((Int32*)accountUID));
+            }
+        }
+
+        /// <summary>
+        /// Send the message to the client.
+        /// </summary>
+        /// <param name="aMsg">The message to send to the client.</param>
+        public void Send(Msg aMsg)
+        {
+            Byte[] msg = (Byte[])aMsg;
+
+            Program.NetworkMonitor.Send(msg.Length);
+            mNetworkWorker.Send(this, msg);
+        }
+
+        /// <summary>
+        /// Send the message to the client.
+        /// 
+        /// /!\ USED ONLY IN NETWORKIO WORKERS /!\
+        /// </summary>
+        /// <param name="aData">The data to send to the client.</param>
+        public void _Send(ref Byte[] aData)
+        {
+            lock (mCipher)
+            {
+                mCipher.Encrypt(ref aData, aData.Length);
+                mSocket.Send(aData);
+            }
+        }
+
+        /// <summary>
+        /// Handle the received data from the client.
+        /// </summary>
+        /// <param name="aData">The data sent by the client.</param>
+        public void Receive(ref Byte[] aData)
+        {
+            Program.NetworkMonitor.Receive(aData.Length);
+
+            if (aData.Length < Msg.MIN_SIZE)
+                return;
+
+            // decrypt the data
+            mCipher.Decrypt(ref aData, aData.Length);
+
+            UInt16 size = 0;
+            for (Int32 i = 0; i < aData.Length; i += size)
+            {
+                size = (UInt16)((aData[i + 0x01] << 8) + aData[i + 0x00]);
+                if (size < aData.Length)
+                {
+                    Msg msg = Msg.Create(aData, i, size);
+                    if (msg != null)
+                        mNetworkWorker.Process(this, msg);
+                }
+                else
+                {
+                    Msg msg = Msg.Create(aData, 0, aData.Length);
+                    if (msg != null)
+                        mNetworkWorker.Process(this, msg);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Disconnect the client.
+        /// </summary>
         public void Disconnect()
         {
             try
             {
-                if (User != null)
+                if (Player != null)
                 {
-                    if (User.TransformEndTime != 0)
+                    if (Player.TransformEndTime != 0)
                     {
-                        User.TransformEndTime = 0;
-                        User.DelTransform();
+                        if (Player.CurHP >= Player.MaxHP)
+                            Player.CurHP = Player.MaxHP;
+                        Double Multiplier = (Double)Player.CurHP / (Double)Player.MaxHP;
+                        Player.CalcMaxHP();
+                        Player.CurHP = (Int32)(Player.MaxHP * Multiplier);
 
-                        if (User.CurHP >= User.MaxHP)
-                            User.CurHP = User.MaxHP;
-                        Double Multiplier = (Double)User.CurHP / (Double)User.MaxHP;
-                        MyMath.GetHitPoints(User, true);
-                        User.CurHP = (Int32)(User.MaxHP * Multiplier);
-
-                        MyMath.GetMagicPoints(User, true);
-                        MyMath.GetEquipStats(User);
+                        MyMath.GetEquipStats(Player);
                     }
-                    User.Thread.Stop();
+                    //User.mThread.Stop();
 
-                    Database.Save(User);
-
-                    foreach (Player Programmer in World.AllMasters.Values)
-                        Programmer.SendSysMsg(String.Format("$@ Disconnection of {0} [{1}]!", User.Name, User.UniqId));
+                    Database.Save(Player, false);
 
                     //Mine
-                    if (User.Mining)
-                        User.Mining = false;
+                    if (Player.Mining)
+                        Player.Mining = false;
 
                     //Booth
-                    if (User.Booth != null)
-                       User. Booth.Destroy();
+                    if (Player.Booth != null)
+                       Player. Booth.Destroy();
 
                     //Team
-                    if (User.Team != null)
+                    if (Player.Team != null)
                     {
-                        if (User.Team.Leader.UniqId == User.UniqId)
-                            User.Team.Dismiss(User);
+                        if (Player.Team.Leader.UniqId == Player.UniqId)
+                            Player.Team.Dismiss(Player);
                         else
-                            User.Team.DelMember(User, true);
-                        User.Team = null;
+                            Player.Team.DelMember(Player, true);
+                        Player.Team = null;
                     }
 
-                    //Game
-                    if (User.Game != null)
-                        User.Game.Destroy();
+                    // Pet
+                    if (Player.Pet != null)
+                    {
+                        Player.Pet.Brain.Sleep();
+                        Player.Pet.Disappear();
+                        Player.Pet = null;
+                    }
 
                     //Deal
-                    if (User.Deal != null)
-                        User.Deal.Release();
+                    if (Player.Deal != null)
+                        Player.Deal.Release();
 
                     //Friends
-                    foreach (Int32 FriendUID in User.Friends.Keys)
+                    foreach (Int32 FriendUID in Player.Friends.Keys)
                     {
                         Player Friend = null;
                         if (!World.AllPlayers.TryGetValue(FriendUID, out Friend))
                             continue;
 
-                        Friend.Send(MsgFriend.Create(User.UniqId, User.Name, false, MsgFriend.Action.FriendOffline));
+                        Friend.Send(new MsgFriend(Player.UniqId, Player.Name, MsgFriend.Status.Offline, MsgFriend.Action.FriendOffline));
                     }
 
                     //Enemies
                     foreach (Player Enemy in World.AllPlayers.Values)
                     {
-                        if (!Enemy.Enemies.ContainsKey(User.UniqId))
+                        if (!Enemy.Enemies.ContainsKey(Player.UniqId))
                             continue;
 
-                        Enemy.Send(MsgFriend.Create(User.UniqId, User.Name, false, MsgFriend.Action.EnemyOffline));
+                        Enemy.Send(new MsgFriend(Player.UniqId, Player.Name, MsgFriend.Status.Offline, MsgFriend.Action.EnemyOffline));
                     }
 
                     //Screen
-                    if (User.Screen != null)
-                        User.Screen.Clear(true);
+                    if (Player.Screen != null)
+                        Player.Screen.Clear(true);
 
-                    if (World.AllMaps.ContainsKey(User.Map))
-                        World.AllMaps[User.Map].DelEntity(User);
+                    Player.Map.DelEntity(Player);
 
-                    if (World.AllPlayers.ContainsKey(User.UniqId))
-                        World.AllPlayers.Remove(User.UniqId);
+                    if (World.AllPlayers.ContainsKey(Player.UniqId))
+                        World.AllPlayers.Remove(Player.UniqId);
 
-                    if (World.AllMasters.ContainsKey(User.UniqId))
-                        World.AllMasters.Remove(User.UniqId);
+                    if (World.AllPlayerNames.ContainsKey(Player.Name))
+                        World.AllPlayerNames.Remove(Player.Name);
 
-                    User = null;
+                    Player.Dispose();
+                    Player = null;
                 }
 
-                Server.NetworkIO.DelClient(this);
+                Server.NetworkIO.DelClient(this, ref mNetworkWorker);
 
-                if (Socket != null && Socket.IsAlive)
-                    Socket.Disconnect();
+                if (mSocket != null && mSocket.IsAlive)
+                    mSocket.Disconnect();
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
+            catch (Exception exc) { Console.WriteLine(exc); }
         }
     }
 }

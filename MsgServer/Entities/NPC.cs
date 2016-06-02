@@ -1,6 +1,6 @@
 ﻿// * Created by Jean-Philippe Boivin
 // * Copyright © 2010
-// * Logik. Project
+// * COPS v6 Emulator
 
 using System;
 
@@ -89,7 +89,7 @@ namespace COServer.Entities
         public Byte Base;
         public Byte Sort;
 
-        public NPC(Int32 UniqId, String Name, Byte Type, Int16 Look, Int16 Map, UInt16 X, UInt16 Y, Byte Base, Byte Sort)
+        public NPC(Int32 UniqId, String Name, Byte Type, UInt32 Look, GameMap Map, UInt16 X, UInt16 Y, Byte Base, Byte Sort)
             : base(UniqId)
         {
             this.Name = Name;
@@ -97,7 +97,7 @@ namespace COServer.Entities
             this.Base = Base;
             this.Sort = Sort;
 
-            this.Look = (UInt32)Look;
+            mLook = Look;
             this.Map = Map;
             this.X = X;
             this.Y = Y;

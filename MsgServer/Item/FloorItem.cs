@@ -1,73 +1,135 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
 using COServer.Network;
 
 namespace COServer
 {
-    public class FloorItem
+    /// <summary>
+    /// Dropped item.
+    /// </summary>
+    public class FloorItem : MapObj
     {
-        public Item Item;
-        public Int32 Money;
-        public Int32 OwnerUID;
-        public Int16 Map;
-        public UInt16 X;
-        public UInt16 Y;
-        public Int32 DroppedTime;
-        public Boolean Destroyed;
+        /// <summary>
+        /// Unique ID of the item.
+        /// </summary>
+        public Int32 Id { get { return Item.Id; } }
 
-        public Int32 UniqId { get { return Item.UniqId; } }
+        /// <summary>
+        /// Associated item object.
+        /// </summary>
+        public Item Item { get; private set; }
 
-        public FloorItem(Item Item, Int32 Money, Int32 OwnerUID, Int16 Map, UInt16 X, UInt16 Y)
+        /// <summary>
+        /// Associated money.
+        /// </summary>
+        public UInt32 Money { get; private set; }
+
+        /// <summary>
+        /// Unique ID of the owner.
+        /// </summary>
+        public Int32 OwnerUID { get; private set; }
+
+        /// <summary>
+        /// Map on which the item is.
+        /// </summary>
+        public GameMap Map { get; private set; }
+
+        /// <summary>
+        /// X coordinate of the object.
+        /// </summary>
+        public UInt16 X { get; private set; }
+
+        /// <summary>
+        /// Y coordinate of the object.
+        /// </summary>
+        public UInt16 Y { get; private set; }
+
+        /// <summary>
+        /// Time at which the item was dropped.
+        /// </summary>
+        public DateTime DroppedTime { get; private set; }
+
+        /// <summary>
+        /// Whether or not the item has been destroyed/picked.
+        /// </summary>
+        public Boolean Destroyed { get; private set; }
+
+        /// <summary>
+        /// Lock to synchronize the destruction.
+        /// </summary>
+        private object mLock = new object();
+
+        /// <summary>
+        /// Create a new floor item.
+        /// </summary>
+        /// <param name="aItem">The associated item on the floor.</param>
+        /// <param name="aMoney">The associated money.</param>
+        /// <param name="aOwnerUID">The unique ID of the owner.</param>
+        /// <param name="aMap">The map on which the item is laying.</param>
+        /// <param name="aX">The X coordinate of the item.</param>
+        /// <param name="aY">The Y coordinate of the item.</param>
+        public FloorItem(Item aItem, UInt32 aMoney, Int32 aOwnerUID, GameMap aMap, UInt16 aX, UInt16 aY)
         {
-            Item.OwnerUID = 0;
-            Item.Position = 254;
+            aItem.OwnerUID = 0;
+            aItem.Position = 254;
 
-            this.Item = Item;
-            this.Money = Money;
-            this.OwnerUID = OwnerUID;
-            this.Map = Map;
-            this.X = X;
-            this.Y = Y;
-            this.Destroyed = false;
+            Item = aItem;
+            Money = aMoney;
+            OwnerUID = aOwnerUID;
 
-            DroppedTime = Environment.TickCount;
+            DroppedTime = DateTime.UtcNow;
+            Destroyed = false;
 
-            lock (World.AllFloorItems) { World.AllFloorItems.Add(UniqId, this); }
+            lock (World.AllFloorItems) { World.AllFloorItems.Add(Id, this); }
 
-            Map CMap = null;
-            if (World.AllMaps.TryGetValue(Map, out CMap))
-                CMap.AddItem(this);
+            Map = aMap;
+            X = aX;
+            Y = aY;
 
-            World.BroadcastRoomMsg(this, MsgMapItem.Create(this, MsgMapItem.Action.Create));
+            aMap.AddItem(this);
         }
 
-        ~FloorItem()
+        /// <summary>
+        /// Remove the item from the map. Optionally, the item object will be deleted.
+        /// </summary>
+        /// <param name="aDelete">Whether or not the item object must be deleted.</param>
+        /// <returns>True on success, false otherwise.</returns>
+        public Boolean Destroy(Boolean aDelete)
         {
+            bool destroy = false;
 
-        }
-
-        public Boolean Destroy(Boolean Delete)
-        {
-            try
+            lock (mLock)
             {
-                Destroyed = true;
-                World.BroadcastRoomMsg(this, MsgMapItem.Create(this, MsgMapItem.Action.Delete));
-
-                if (World.AllFloorItems.ContainsKey(UniqId))
-                    lock (World.AllFloorItems) { World.AllFloorItems.Remove(UniqId); }
-
-                Map CMap = null;
-                if (World.AllMaps.TryGetValue(Map, out CMap))
-                    CMap.DelItem(this);
-
-                if (Delete)
-                    Item.Delete(UniqId);
-                return true;
+                if (!Destroyed)
+                {
+                    destroy = true;
+                    Destroyed = true;
+                }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); return false; }
+
+            if (destroy)
+            {
+                lock (World.AllFloorItems)
+                {
+                    if (World.AllFloorItems.ContainsKey(Id))
+                        World.AllFloorItems.Remove(Id);
+                }
+
+                if (Map != null)
+                    Map.DelItem(this);
+
+                if (aDelete)
+                    Item.Delete(Id);
+            }
+
+            return destroy;
         }
     }
 }

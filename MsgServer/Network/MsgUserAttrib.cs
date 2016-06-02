@@ -1,20 +1,30 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.Runtime.InteropServices;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using COServer.Entities;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgUserAttrib : Msg
+    public class MsgUserAttrib : Msg
     {
-        public const Int16 Id = _MSG_USERATTRIB;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_USERATTRIB; } }
 
-        public enum Type
+        public enum AttributeType : uint
         {
-            None = -1,
             Life = 0,
             MaxLife = 1,
             Mana = 2,
@@ -23,7 +33,6 @@ namespace COServer.Network
             Exp = 5,
             PkPoints = 6,
             Profession = 7,
-            SizeAdd = 8, //0 -> None / 1 -> Cursed / 2 -> Blessed / 3 -> Cursed & Blessed (Important for these effect!)
             Energy = 9,
             AddPoints = 11,
             Look = 12,
@@ -32,49 +41,77 @@ namespace COServer.Network
             Vitality = 15,
             Strength = 16,
             Agility = 17,
-            BlessTime = 18,
             DblExpTime = 19,
             // 20 = GuildDonation (when you attack the GW pole for example, this is sent with your new donation)
-            CurseTime = 21,
             TimeAdd = 22, //Cyclone & Superman (0 = 0sec / 1 = 1sec / 2 = 2 sec / 3 = 3sec)
             Metempsychosis = 23,
             Flags = 26,
             Hair = 27,
             XP = 28,
             LuckyTime = 29,
-            CPs = 30,
-            TrainingPoints = 32, //0 -> Show / 1 -> In Offline TG (No Points) / 2 -> Out Offline TG (Points) / 3 -> Add 10 pts / 4 -> 100%
-        };
+        }
 
-        [StructLayout(LayoutKind.Sequential)]
-        public struct MsgInfo
-        {
-            public MsgHeader Header;
-            public Int32 UniqId;
-            public Int32 Count;
-            public Int32 Type; //Type(n)
-            public Int64 Param; //Param(n)
-        };
+        //--------------- Internal Members ---------------
+        private Int32 __UniqId = 0;
+        private Dictionary<AttributeType, UInt64> __Attributes = new Dictionary<AttributeType, UInt64>();
+        //------------------------------------------------
 
-        public static Byte[] Create(Entity Entity, Int64 Param, Type Type)
+        /// <summary>
+        /// Unique ID of the entity.
+        /// </summary>
+        public Int32 UniqId
         {
-            try
+            get { return __UniqId; }
+            set { __UniqId = value; WriteInt32(4, value); }
+        }
+
+        public Dictionary<AttributeType, UInt64> Attributes
+        {
+            get { return new Dictionary<AttributeType, UInt64>(__Attributes); }
+            set
             {
-                MsgInfo* pMsg = stackalloc MsgInfo[1];
-                pMsg->Header.Length = (Int16)sizeof(MsgInfo);
-                pMsg->Header.Type = Id;
+                __Attributes = value;
 
-                pMsg->UniqId = Entity.UniqId;
-                pMsg->Count = 0x01;
-                pMsg->Type = (Int32)Type;
-                pMsg->Param = Param;
+                WriteInt32(8, value.Count);
 
-                Byte[] Out = new Byte[pMsg->Header.Length];
-                Marshal.Copy((IntPtr)pMsg, Out, 0, Out.Length);
-
-                return Out;
+                int pos = 12;
+                foreach (var kv in value)
+                {
+                    WriteUInt32(pos + 0, (UInt32)kv.Key);
+                    WriteUInt64(pos + 4, kv.Value);
+                    pos += 12;
+                }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+        }
+
+        public MsgUserAttrib(Entity aEntity, Int64 aData, AttributeType aType)
+            : base(24)
+        {
+            if (aData < 0)
+                throw new ArgumentException("Data must be greater than 0.");
+
+            UniqId = aEntity.UniqId;
+            Attributes = new Dictionary<AttributeType, UInt64>()
+            { 
+                { aType, (UInt64)aData }
+            };
+        }
+
+        public MsgUserAttrib(Entity aEntity, UInt64 aData, AttributeType aType)
+            : base(24)
+        {
+            UniqId = aEntity.UniqId;
+            Attributes = new Dictionary<AttributeType, UInt64>()
+            { 
+                { aType, aData }
+            };
+        }
+
+        public MsgUserAttrib(Entity aEntity, Dictionary<AttributeType, UInt64> aAttributes)
+            : base((UInt16)(12 + (aAttributes.Count * 12)))
+        {
+            UniqId = aEntity.UniqId;
+            Attributes = aAttributes;
         }
     }
 }

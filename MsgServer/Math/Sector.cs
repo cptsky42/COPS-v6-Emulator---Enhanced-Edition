@@ -1,54 +1,65 @@
 ﻿// * Created by Jean-Philippe Boivin
 // * Copyright © 2012
-// * Logik. Project
+// * COPS v6 Emulator
 
 using System;
+using COServer.Entities;
 
 namespace COServer
 {
     public partial class MyMath
     {
-        public class Sector
+        public struct Sector
         {
-            private int attackerX, attackerY, attackX, attackY;
-            private int degree, sectorsize, leftside, rightside;
-            private int distance;
-            private bool addextra;
+            private UInt16 mAttackerX, mAttackerY;
+            private UInt16 mAttackX, mAttackY;
 
-            public Sector(int attackerX, int attackerY, int attackX, int attackY)
+            private bool mAddExtra;
+
+            private int mDegree, mLeftSide, mRightSide;
+            private int mDistance;
+
+            public Sector(Entity aAttacker, UInt16 aAttackX, UInt16 aAttackY)
             {
-                this.attackerX = attackerX;
-                this.attackerY = attackerY;
-                this.attackX = attackX;
-                this.attackY = attackY;
-                this.degree = (Int32)MyMath.GetDirection(attackerX, attackX, attackerY, attackY);
-                this.addextra = false;
+                mAttackerX = aAttacker.X;
+                mAttackerY = aAttacker.Y;
+                mAttackX = aAttackX;
+                mAttackY = aAttackY;
+
+                mDegree = MyMath.GetDirection(mAttackerX, mAttackX, mAttackerY, mAttackY);
+                mLeftSide = 0; mRightSide = 0;
+                mDistance = 0;
+
+                mAddExtra = false;
             }
 
-            public void Arrange(int sectorsize, int distance)
+            public void Arrange(int aSectorSize, int aDistance)
             {
-                this.distance = Math.Min(distance, 14);
-                this.sectorsize = sectorsize;
-                this.leftside = this.degree - (sectorsize / 2);
-                if (this.leftside < 0)
-                    this.leftside += 360;
-                this.rightside = this.degree + (sectorsize / 2);
-                if (this.leftside < this.rightside || this.rightside - this.leftside != this.sectorsize)
+                mDistance = Math.Min(aDistance, 14);
+
+                mLeftSide = mDegree - (aSectorSize / 2);
+                if (mLeftSide < 0)
+                    mLeftSide += 360;
+
+                mRightSide = mDegree + (aSectorSize / 2);
+                if (mLeftSide < mRightSide || mRightSide - mLeftSide != aSectorSize)
                 {
-                    this.rightside += 360;
-                    this.addextra = true;
+                    mRightSide += 360;
+                    mAddExtra = true;
                 }
             }
 
 
-            public bool Inside(int X, int Y)
+            public bool Inside(UInt16 aPosX, UInt16 aPosY)
             {
-                if (MyMath.GetDistance((ushort)X, (ushort)Y, (ushort)attackerX, (ushort)attackerY) <= distance)
+                if (MyMath.GetDistance(aPosX, aPosY, mAttackerX, mAttackerY) <= mDistance)
                 {
-                    int degree = (Int32)MyMath.GetDirection(attackerX, X, attackerY, Y);
-                    if (this.addextra)
+                    int degree = MyMath.GetDirection(mAttackerX, aPosX, mAttackerY, aPosY);
+                    
+                    if (mAddExtra)
                         degree += 360;
-                    if (degree >= this.leftside && degree <= this.rightside)
+                    
+                    if (degree >= mLeftSide && degree <= mRightSide)
                         return true;
                 }
                 return false;

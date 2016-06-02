@@ -1,0 +1,9 @@
+AniFile=ani\MapScene.ani
+AniTitle=room07.tga
+OffsetX=-26
+OffsetY=-79
+AniInterval=200
+Width=1
+Height=1
+Thick=50
+Cell[0,0]={1,0,50}

@@ -1,6 +1,6 @@
 ﻿// * Created by Jean-Philippe Boivin
 // * Copyright © 2011
-// * Logik. Project
+// * COPS v6 Emulator
 
 using System;
 using COServer.Entities;
@@ -69,26 +69,6 @@ namespace COServer
                 Player.AddPoints += 45;
             else if (Player.FirstLevel == 130 || (Player.FirstLevel == 130 && Player.FirstProfession == 135))
                 Player.AddPoints += 55;
-            else if (Player.FirstLevel == 131)
-                Player.AddPoints += 60;
-            else if (Player.FirstLevel == 132)
-                Player.AddPoints += 65;
-            else if (Player.FirstLevel == 133)
-                Player.AddPoints += 70;
-            else if (Player.FirstLevel == 134)
-                Player.AddPoints += 75;
-            else if (Player.FirstLevel == 135)
-                Player.AddPoints += 80;
-            else if (Player.FirstLevel == 136)
-                Player.AddPoints += 85;
-            else if (Player.FirstLevel == 137)
-                Player.AddPoints += 90;
-            else if (Player.FirstLevel == 138)
-                Player.AddPoints += 95;
-            else if (Player.FirstLevel == 139)
-                Player.AddPoints += 100;
-            else if (Player.FirstLevel == 140)
-                Player.AddPoints += 105;
 
             if (Player.SecondLevel == 121)
                 Player.AddPoints += 1;
@@ -110,33 +90,13 @@ namespace COServer
                 Player.AddPoints += 45;
             else if (Player.SecondLevel == 130)
                 Player.AddPoints += 55;
-            else if (Player.SecondLevel == 131)
-                Player.AddPoints += 60;
-            else if (Player.SecondLevel == 132)
-                Player.AddPoints += 65;
-            else if (Player.SecondLevel == 133)
-                Player.AddPoints += 70;
-            else if (Player.SecondLevel == 134)
-                Player.AddPoints += 75;
-            else if (Player.SecondLevel == 135)
-                Player.AddPoints += 80;
-            else if (Player.SecondLevel == 136)
-                Player.AddPoints += 85;
-            else if (Player.SecondLevel == 137)
-                Player.AddPoints += 90;
-            else if (Player.SecondLevel == 138)
-                Player.AddPoints += 95;
-            else if (Player.SecondLevel == 139)
-                Player.AddPoints += 100;
-            else if (Player.SecondLevel == 140)
-                Player.AddPoints += 105;
 
-            MyMath.GetHitPoints(Player, true);
-            MyMath.GetMagicPoints(Player, true);
+            Player.CalcMaxHP();
+            Player.CalcMaxMP();
             MyMath.GetEquipStats(Player);
         }
 
-        public static Int16[] GetLevelStats(Byte Level, Byte Profession)
+        public static UInt16[] GetLevelStats(Byte Level, Byte Profession)
         {
             Byte Lvl = Level;
             Byte Job = Profession;

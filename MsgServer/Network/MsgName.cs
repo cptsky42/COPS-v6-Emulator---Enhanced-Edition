@@ -1,20 +1,30 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2011 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.Runtime.InteropServices;
+using System.Linq;
+using System.Runtime.CompilerServices;
 using COServer.Entities;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgName : Msg
+    public class MsgName : Msg
     {
-        public const Int16 Id = _MSG_NAME;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_NAME; } }
 
-        public enum Action
+        public enum NameAct
         {
-            None = 0,
             Fireworks = 1,
             CreateSyn = 2,
             Syndicate = 3,
@@ -37,179 +47,154 @@ namespace COServer.Network
             Sound = 20,
             SynEnemie = 21,	
             SynAlly = 22,
-            Bavarder = 26,
         };
 
-        public struct MsgInfo
-        {
-            public MsgHeader Header;
-            public Int32 Data;
-            public Byte Action;
-            public Byte Count;
-            public String[] Params;
-        };
+        //--------------- Internal Members ---------------
+        private UInt32 __Data = 0; // Data, TargetId, (PosX, PosY)
+        private NameAct __Type = (NameAct)0;
+        private StringPacker __StrPacker = null;
+        //------------------------------------------------
 
-        public static Byte[] Create(Int32 Data, String Param, Action Action)
+        public UInt32 Data
         {
-            try
-            {
-                if (Param == null || Param.Length > _MAX_WORDSSIZE)
-                    return null;
-
-                Byte[] Out = new Byte[13 + Param.Length];
-                fixed (Byte* p = Out)
-                {
-                    *((Int16*)(p + 0)) = (Int16)Out.Length;
-                    *((Int16*)(p + 2)) = (Int16)Id;
-                    *((Int32*)(p + 4)) = (Int32)Data;
-                    *((Byte*)(p + 8)) = (Byte)Action;
-                    *((Byte*)(p + 9)) = (Byte)0x01;
-                    *((Byte*)(p + 10)) = (Byte)Param.Length;
-                    for (Byte i = 0; i < (Byte)Param.Length; i++)
-                        *((Byte*)(p + 11 + i)) = (Byte)Param[i];
-                }
-                return Out;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+            get { return __Data; }
+            set { __Data = value; WriteUInt32(4, value); }
         }
 
-        public static Byte[] Create(Int32 Data, String[] Params, Action Action)
+        public UInt32 TargetId
         {
-            try
+            get { return __Data; }
+            set { __Data = value; WriteUInt32(4, value); }
+        }
+
+        public UInt16 PosX
+        {
+            get { return (UInt16)((__Data >> 16) & 0x0000FFFFU); }
+            set { __Data = (UInt32)((value << 16) | (__Data & 0x0000FFFFU)); WriteUInt16(4, value); }
+        }
+
+        public UInt16 PosY
+        {
+            get { return (UInt16)(__Data & 0x0000FFFFU); }
+            set { __Data = (UInt32)((__Data & 0xFFFF0000U) | (value)); WriteUInt16(6, value); }
+        }
+
+        public NameAct Type
+        {
+            get { return __Type; }
+            set { __Type = value; mBuf[8] = (Byte)value; }
+        }
+
+        public String[] Params
+        {
+            get { return (String[])__StrPacker; }
+        }
+
+        /// <summary>
+        /// Create a message object from the specified buffer.
+        /// </summary>
+        /// <param name="aBuf">The buffer containing the message.</param>
+        /// <param name="aIndex">The index where the message is starting in the buffer.</param>
+        /// <param name="aLength">The length of the message.</param>
+        internal MsgName(Byte[] aBuf, int aIndex, int aLength)
+            : base(aBuf, aIndex, aLength)
+        {
+            __Data = BitConverter.ToUInt32(mBuf, 4);
+            __Type = (NameAct)mBuf[8];
+            __StrPacker = new StringPacker(this, 9);
+        }
+
+        public MsgName(UInt16 aPosX, UInt16 aPosY, String aParam, NameAct aType)
+            : base((UInt16)(12 + aParam.Length))
+        {
+            PosX = aPosX;
+            PosY = aPosY;
+            Type = aType;
+
+            __StrPacker = new StringPacker(this, 9);
+            __StrPacker.AddString(aParam);
+        }
+
+        public MsgName(UInt32 aData, String aParam, NameAct aType)
+            : base((UInt16)(12 + aParam.Length))
+        {
+            Data = aData;
+            Type = aType;
+
+            __StrPacker = new StringPacker(this, 9);
+            __StrPacker.AddString(aParam);
+        }
+
+        public MsgName(Int32 aData, String aParam, NameAct aType)
+            : base((UInt16)(12 + aParam.Length))
+        {
+            Data = (UInt32)aData;
+            Type = aType;
+
+            __StrPacker = new StringPacker(this, 9);
+            __StrPacker.AddString(aParam);
+        }
+
+        public MsgName(UInt32 aData, String[] aParams, NameAct aType)
+            : base((UInt16)(12 + aParams.Select(p => p.Length + 1).Sum()))
+        {
+            Data = aData;
+            Type = aType;
+
+            __StrPacker = new StringPacker(this, 9);
+            foreach (String param in aParams)
+                __StrPacker.AddString(param);
+        }
+
+        /// <summary>
+        /// Process the message for the specified client.
+        /// </summary>
+        /// <param name="aClient">The client who sent the message.</param>
+        public override void Process(Client aClient)
+        {
+            switch (Type)
             {
-                if (Params == null || Params.Length < 1)
-                    return null;
-
-                Int32 StrLength = 0;
-                for (Int32 i = 0; i < Params.Length; i++)
-                {
-                    if (Params[i] == null || Params[i].Length > _MAX_WORDSSIZE)
-                        return null;
-
-                    StrLength += Params[i].Length + 1;
-                }
-
-                Byte[] Out = new Byte[12 + StrLength];
-                fixed (Byte* p = Out)
-                {
-                    *((Int16*)(p + 0)) = (Int16)Out.Length;
-                    *((Int16*)(p + 2)) = (Int16)Id;
-                    *((Int32*)(p + 4)) = (Int32)Data;
-                    *((Byte*)(p + 8)) = (Byte)Action;
-                    *((Byte*)(p + 9)) = (Byte)Params.Length;
-
-                    Int32 Pos = 10;
-                    for (Int32 x = 0; x < Params.Length; x++)
+                case NameAct.MemberList:
                     {
-                        *((Byte*)(p + Pos)) = (Byte)Params[x].Length;
-                        for (Byte i = 0; i < (Byte)Params[x].Length; i++)
-                            *((Byte*)(p + Pos + 1 + i)) = (Byte)Params[x][i];
-                        Pos += Params[x].Length + 1;
+                        Player player = aClient.Player;
+                        if (player == null)
+                            return;
+
+                        if (player.Syndicate == null)
+                            return;
+
+                        Syndicate syn = player.Syndicate;
+                        String[] members = syn.GetMemberList();
+
+                        int index = (int)(Data * 10);
+                        int count = members.Length - index;
+                        if (count > 10)
+                            count = 10;
+
+                        members = members.Skip(index).Take(count).ToArray();
+
+                        player.Send(new MsgName(Data + 1, members, NameAct.MemberList));
+                        break;
                     }
-                }
-                return Out;
+                case NameAct.QuerySpouse:
+                    {
+                        Player player = aClient.Player;
+                        if (player == null)
+                            return;
+
+                        Player target = null;
+                        if (!World.AllPlayers.TryGetValue((Int32)TargetId, out target))
+                            return;
+
+                        player.Send(new MsgName(target.UniqId, target.Mate, NameAct.QuerySpouse));
+                        break;
+                    }
+                default:
+                    {
+                        sLogger.Error("Type {0} is not implemented for MsgName.", (Byte)Type);
+                        break;
+                    }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
-        }
-
-        public static void Process(Client Client, Byte[] Buffer)
-        {
-            try
-            {
-                Int16 MsgLength = (Int16)((Buffer[0x01] << 8) + Buffer[0x00]);
-                Int16 MsgId = (Int16)((Buffer[0x03] << 8) + Buffer[0x02]);
-                Int32 Data = (Int32)((Buffer[0x07] << 24) + (Buffer[0x06] << 16) + (Buffer[0x05] << 8) + Buffer[0x04]);
-                Action Action = (Action)Buffer[0x08];
-                Byte Count = Buffer[0x09];
-                String[] Params = new String[Count];
-
-                Int32 Pos = 10;
-                for (Int32 i = 0; i < Count; i++)
-                {
-                    Params[i] = Program.Encoding.GetString(Buffer, Pos + 1, Buffer[Pos]);
-                    Pos = Params[i].Length + 1;
-                }
-
-                switch (Action)
-                {
-                    case Action.MemberList:
-                        {
-                            Player Player = Client.User;
-                            if (Player == null)
-                                return;
-
-                            if (Player.Syndicate == null)
-                                return;
-
-                            Syndicate.Info Syn = Player.Syndicate;
-                            String[] List = Syn.GetMemberList();
-
-                            if (Data == -1)
-                                Data = 0;
-
-                            Int32 Amount = List.Length - (Data * 10);
-                            if (Amount > 10)
-                                Amount = 10;
-
-                            String[] Tmp = new String[Amount];
-                            Array.Copy(List, Data * 10, Tmp, 0, Amount);
-
-                            Player.Send(MsgName.Create(Data + 1, Tmp, Action.MemberList));
-                            break;
-                        }
-                    case Action.QuerySpouse:
-                        {
-                            Player Player = Client.User;
-                            if (Player == null)
-                                return;
-
-                            Player Target = null;
-                            if (!World.AllPlayers.TryGetValue(Data, out Target))
-                                return;
-
-                            Player.Send(MsgName.Create(Target.UniqId, Target.Spouse, Action.QuerySpouse));
-                            break;
-                        }
-                    case Action.Bavarder:
-                        {
-                            Player Target = null;
-                            foreach (Player Player in World.AllPlayers.Values)
-                            {
-                                if (Player.Name == Params[0])
-                                {
-                                    Target = Player;
-                                    break;
-                                }
-                            }
-
-                            if (Target == null)
-                                return;
-
-                            String SynName = "";
-                            if (Target.Syndicate != null)
-                                SynName = Target.Syndicate.Name;
-
-                            String TargetInfo = 
-                                Target.UniqId + " " + 
-                                Target.Level + " " + 
-                                Target.Potency + " #" + 
-                                SynName + " #" + 
-                                "Family" + " " + 
-                                Target.Spouse + " " + 
-                                Target.Nobility.Rank + " " + 
-                                (Target.IsMan() ? (Byte)1 : (Byte)0);
-
-                            Client.Send(MsgName.Create(0, new String[] { Target.Name, TargetInfo }, Action.Bavarder));
-                            break;
-                        }
-                    default:
-                        {
-                            Console.WriteLine("Msg[{0}], Action[{1}] not implemented yet!", MsgId, (Int16)Action);
-                            break;
-                        }
-                }
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
         }
     }
 }

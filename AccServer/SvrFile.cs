@@ -1,51 +1,59 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
 using System.IO;
-using System.Text;
 
 namespace COServer
 {
+    /// <summary>
+    /// A SvrInfo object contains all the information about a MsgServer.
+    /// </summary>
     public class SvrInfo
     {
-        public String Name;
-        public String IPAddress;
-        public UInt16 Port;
+        /// <summary>
+        /// The logger of the class.
+        /// </summary>
+        private static readonly log4net.ILog sLogger = log4net.LogManager.GetLogger(typeof(SvrInfo));
 
-        public SvrInfo(String File)
+        /// <summary>
+        /// The name of the server.
+        /// </summary>
+        public readonly String Name;
+
+        /// <summary>
+        /// The IP address of the server.
+        /// </summary>
+        public readonly String IPAddress;
+
+        /// <summary>
+        /// The port of the server.
+        /// </summary>
+        public readonly UInt16 Port;
+
+        /// <summary>
+        /// Creates a new SvrInfo object by loading the specified SVR file.
+        /// </summary>
+        /// <param name="aPath">The path of the SVR file to load.</param>
+        public SvrInfo(String aPath)
         {
-            try
+            if (!File.Exists(aPath))
             {
-                using (FileStream FStream = new FileStream(File, FileMode.Open, FileAccess.Read, FileShare.Read))
-                {
-                    BinaryReader BReader = new BinaryReader(FStream, Encoding.ASCII);
-
-                    String Identifier = Encoding.ASCII.GetString(BReader.ReadBytes(3));
-                    if (Identifier == "SVR")
-                    {
-                        FStream.Seek(1, SeekOrigin.Current);
-                        Name = Encoding.ASCII.GetString(BReader.ReadBytes(BReader.ReadInt32()));
-                        FStream.Seek(1, SeekOrigin.Current);
-                        IPAddress = Encoding.ASCII.GetString(BReader.ReadBytes(BReader.ReadInt32()));
-                        FStream.Seek(1, SeekOrigin.Current);
-                        Port = BReader.ReadUInt16();
-                    }
-                    else
-                        Program.WriteLine("SvrInfo::SvrInfo() -> Failed to read the file '" + File + "'");
-
-                    BReader.Close();
-                    BReader = null;
-                }
+                sLogger.Error("The file does not exist. ({0})", aPath);
+                throw new FileNotFoundException("The file does not exist", aPath);
             }
-            catch { Program.WriteLine("SvrInfo::SvrInfo() -> Failed to read the file '" + File + "'"); }
-        }
 
-        ~SvrInfo()
-        {
-            Name = null;
-            IPAddress = null;
+            using (Ini reader = new Ini(aPath))
+            {
+                Name = reader.ReadString("Server", "Name");
+                IPAddress = reader.ReadString("Server", "IPAddress");
+                Port = reader.ReadUInt16("Server", "Port");
+            }
         }
     }
 }

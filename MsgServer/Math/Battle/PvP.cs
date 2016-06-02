@@ -1,10 +1,10 @@
 // * Created by Jean-Philippe Boivin
 // * Copyright © 2011
-// * Logik. Project
+// * COPS v6 Emulator
 
 using System;
 using COServer.Entities;
-using CO2_CORE_DLL.IO;
+using COServer.Network;
 
 namespace COServer
 {
@@ -20,9 +20,7 @@ namespace COServer
             else if (Target.Metempsychosis >= 2)
                 Reborn -= 0.50; //50%
 
-            Double Dodge = 1.00;
-            Dodge -= (Double)Target.Dodge / 100;
-            Dodge += (Double)Target.Weight / 100;
+            Double Dodge = 1.00 - (Math.Min(Target.Dodge, 100.00) / 100.00);
 
             switch (Attacker.AtkType)
             {
@@ -30,7 +28,7 @@ namespace COServer
                     {
                         Damage = MyMath.Generate(Attacker.MinAtk, Attacker.MaxAtk);
 
-                        if (Attacker.ContainsFlag(Player.Flag.SuperMan))
+                        if (Attacker.HasStatus(Status.SuperAtk))
                             Damage *= 0.2; //PvP Reduction!
 
                         Damage -= Target.Defence;
@@ -40,25 +38,21 @@ namespace COServer
                     {
                         Damage = Attacker.MagicAtk;
 
-                        //Damage *= ((Double)(100 - Target.MagicDef) / 100);
-                        //Damage -= Target.MagicBlock;
-                        //Damage *= 0.75;
-
-                        Damage *= ((Double)(100 - Math.Min(Target.MagicDef, 95)) / 100);
+                        Damage *= ((Double)(100 - Target.MagicDef) / 100);
                         Damage -= Target.MagicBlock;
-                        Damage *= 0.65;
+                        Damage *= 0.75;
+
                         break;
                     }
                 case 25:
                     {
                         Damage = MyMath.Generate(Attacker.MinAtk, Attacker.MaxAtk);
 
-                        if (Attacker.ContainsFlag(Player.Flag.SuperMan))
+                        if (Attacker.HasStatus(Status.SuperAtk))
                             Damage *= 0.2; //PvP Reduction!
 
                         Damage *= Dodge;
-                        Damage *= 0.10;
-                        //Damage *= 0.12;
+                        Damage *= 0.12;
                         break;
                     }
             }
@@ -67,30 +61,26 @@ namespace COServer
             Damage *= Target.Bless;
             Damage *= Target.GemBonus;
 
-            Double BattlePower = Attacker.Potency - Target.Potency;
-            BattlePower = Math.Pow(2.0, BattlePower / 100.00);
-            Damage *= BattlePower;
-
             if (Damage < 1)
                 Damage = 1;
 
             if (Attacker.LuckyTime > 0 && MyMath.Success(10))
             {
                 Damage *= 2;
-                World.BroadcastRoomMsg(Attacker, Network.MsgName.Create(Attacker.UniqId, "LuckyGuy", Network.MsgName.Action.RoleEffect), true);
+                World.BroadcastRoomMsg(Attacker, new MsgName(Attacker.UniqId, "LuckyGuy", Network.MsgName.NameAct.RoleEffect), true);
             }
             if (Target.LuckyTime > 0 && MyMath.Success(10))
             {
                 Damage = 1;
-                World.BroadcastRoomMsg(Target, Network.MsgName.Create(Target.UniqId, "LuckyGuy", Network.MsgName.Action.RoleEffect), true);
+                World.BroadcastRoomMsg(Target, new MsgName(Target.UniqId, "LuckyGuy", Network.MsgName.NameAct.RoleEffect), true);
             }
             return (Int32)Math.Round(Damage, 0);
         }
 
-        public static Int32 GetDamagePlayer2Player(Player Attacker, Player Target, Int16 MagicType, Byte MagicLevel)
+        public static Int32 GetDamagePlayer2Player(Player Attacker, Player Target, UInt16 MagicType, Byte MagicLevel)
         {
-            MagicType.Entry Info = new MagicType.Entry();
-            Database2.AllMagics.TryGetValue((MagicType * 10) + MagicLevel, out Info);
+            Magic.Info Info = new Magic.Info();
+            Database.AllMagics.TryGetValue((MagicType * 10) + MagicLevel, out Info);
 
             Double Damage = 0;
 
@@ -100,14 +90,12 @@ namespace COServer
             else if (Target.Metempsychosis >= 2)
                 Reborn -= 0.50; //50%
 
-            Double Dodge = 1.00;
-            Dodge -= (Double)Target.Dodge / 100;
-            Dodge += (Double)Target.Weight / 100;
+            Double Dodge = 1.00 - (Math.Min(Target.Dodge, 100.00) / 100.00);
 
-            if (Info.MagicType == 1115 || (Info.WeaponSubType != 0 && Info.WeaponSubType != 500))
+            if (Info.Type == 1115 || (Info.WeaponSubtype != 0 && Info.WeaponSubtype != 500))
             {
                 Damage = MyMath.Generate(Attacker.MinAtk, Attacker.MaxAtk);
-                if (Attacker.ContainsFlag(Player.Flag.SuperMan))
+                if (Attacker.HasStatus(Status.SuperAtk))
                     Damage *= 0.2; //PvP Reduction!
 
                 if (Info.Power > 30000)
@@ -117,10 +105,10 @@ namespace COServer
 
                 Damage -= Target.Defence;
             }
-            else if (Info.WeaponSubType == 500)
+            else if (Info.WeaponSubtype == 500)
             {
                 Damage = MyMath.Generate(Attacker.MinAtk, Attacker.MaxAtk);
-                if (Attacker.ContainsFlag(Player.Flag.SuperMan))
+                if (Attacker.HasStatus(Status.SuperAtk))
                     Damage *= 0.2; //PvP Reduction!
 
                 if (Info.Power > 30000)
@@ -129,8 +117,7 @@ namespace COServer
                     Damage += Info.Power;
 
                 Damage *= Dodge;
-                Damage *= 0.10;
-                //Damage *= 0.12;
+                Damage *= 0.12;
             }
             else
             {
@@ -140,22 +127,14 @@ namespace COServer
                 else
                     Damage += Info.Power;
 
-                //Damage *= ((Double)(100 - Target.MagicDef) / 100);
-                //Damage -= Target.MagicBlock;
-                //Damage *= 0.75;
-
-                Damage *= ((Double)(100 - Math.Min(Target.MagicDef, 95)) / 100);
+                Damage *= ((Double)(100 - Target.MagicDef) / 100);
                 Damage -= Target.MagicBlock;
-                Damage *= 0.65;
+                Damage *= 0.75;
             }
 
             Damage *= Reborn;
             Damage *= Target.Bless;
             Damage *= Target.GemBonus;
-
-            Double BattlePower = Attacker.Potency - Target.Potency;
-            BattlePower = Math.Pow(2.0, BattlePower / 100.00);
-            Damage *= BattlePower;
 
             if (Damage < 1)
                 Damage = 1;
@@ -163,12 +142,12 @@ namespace COServer
             if (Attacker.LuckyTime > 0 && MyMath.Success(10))
             {
                 Damage *= 2;
-                World.BroadcastRoomMsg(Attacker, Network.MsgName.Create(Attacker.UniqId, "LuckyGuy", Network.MsgName.Action.RoleEffect), true);
+                World.BroadcastRoomMsg(Attacker, new MsgName(Attacker.UniqId, "LuckyGuy", Network.MsgName.NameAct.RoleEffect), true);
             }
             if (Target.LuckyTime > 0 && MyMath.Success(10))
             {
                 Damage = 1;
-                World.BroadcastRoomMsg(Target, Network.MsgName.Create(Target.UniqId, "LuckyGuy", Network.MsgName.Action.RoleEffect), true);
+                World.BroadcastRoomMsg(Target, new MsgName(Target.UniqId, "LuckyGuy", Network.MsgName.NameAct.RoleEffect), true);
             }
             return (Int32)Math.Round(Damage, 0);
         }

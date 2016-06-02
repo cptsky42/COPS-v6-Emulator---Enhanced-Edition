@@ -1,17 +1,26 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using COServer.Entities;
-using CO2_CORE_DLL.IO;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgPackage : Msg
+    public class MsgPackage : Msg
     {
-        public const Int16 Id = _MSG_PACKAGE;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_PACKAGE; } }
 
         public enum Action
         {
@@ -19,215 +28,210 @@ namespace COServer.Network
             CheckIn = 1,
             CheckOut = 2,
             QueryList2 = 3,
-        };
-
-        public enum Type
-        {
-            None = 0,
-            Storage = 10,
-            Trunk = 20,
-            Chest = 30,
-        };
-
-        public struct MsgInfo
-        {
-            public MsgHeader Header;
-            public Int32 UniqId;
-            public Byte Action;
-            public Byte Type;
-            public Int16 Unknow;
-            public Int32 Param;
-            //ItemInfo (20 bytes)
-        };
-
-        public static Byte[] Create(Int32 UniqId, Action Action, Type Type, Int32 Param)
-        {
-            try
-            {
-                Byte[] Out = new Byte[16];
-                fixed (Byte* p = Out)
-                {
-                    *((Int16*)(p + 0)) = (Int16)Out.Length;
-                    *((Int16*)(p + 2)) = (Int16)Id;
-                    *((Int32*)(p + 4)) = (Int32)UniqId;
-                    *((Byte*)(p + 8)) = (Byte)Action;
-                    *((Byte*)(p + 9)) = (Byte)Type;
-                    *((Int16*)(p + 10)) = (Int16)0x00;
-                    *((Int32*)(p + 12)) = (Int32)Param;
-                }
-                return Out;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
         }
 
-        public static Byte[] Create(Int32 UniqId, Action Action, Type Type, Item[] Items)
-        {
-            try
-            {
-                Byte[] Out = new Byte[16 + (Items.Length * 20)];
-                fixed (Byte* p = Out)
-                {
-                    *((Int16*)(p + 0)) = (Int16)Out.Length;
-                    *((Int16*)(p + 2)) = (Int16)Id;
-                    *((Int32*)(p + 4)) = (Int32)UniqId;
-                    *((Byte*)(p + 8)) = (Byte)Action;
-                    *((Byte*)(p + 9)) = (Byte)Type;
-                    *((Int16*)(p + 10)) = (Int16)0x00;
-                    *((Int32*)(p + 12)) = (Int32)Items.Length;
+        //--------------- Internal Members ---------------
+        private Int32 __Id = 0;
+        private Action __Action = (Action)0;
+        private PackageType __Type = PackageType.None;
+        private Int32 __ItemId = 0; // to client/server: itemid, to client: size
+        //------------------------------------------------
 
-                    Int32 Pos = 16;
-                    foreach (Item Item in Items)
+        public Int32 Id
+        {
+            get { return __Id; }
+            set { __Id = value; WriteInt32(4, value); }
+        }
+
+        public Action _Action
+        {
+            get { return __Action; }
+            set { __Action = value; mBuf[8] = (Byte)value; }
+        }
+
+        public PackageType Type
+        {
+            get { return __Type; }
+            set { __Type = value; mBuf[9] = (Byte)value; }
+        }
+
+        public Int32 ItemId
+        {
+            get { return __ItemId; }
+            set { __ItemId = value; WriteInt32(12, value); }
+        }
+
+        /// <summary>
+        /// Create a message object from the specified buffer.
+        /// </summary>
+        /// <param name="aBuf">The buffer containing the message.</param>
+        /// <param name="aIndex">The index where the message is starting in the buffer.</param>
+        /// <param name="aLength">The length of the message.</param>
+        internal MsgPackage(Byte[] aBuf, int aIndex, int aLength)
+            : base(aBuf, aIndex, aLength)
+        {
+            __Id = BitConverter.ToInt32(mBuf, 4);
+            __Action = (Action)mBuf[8];
+            __Type = (PackageType)mBuf[9];
+            __ItemId = BitConverter.ToInt32(mBuf, 12);
+        }
+
+        public MsgPackage(Int32 aId, Action aAction, PackageType aType, Int32 aItemId)
+            : base(16)
+        {
+            Id = aId;
+            _Action = aAction;
+            Type = aType;
+            ItemId = aItemId;
+        }
+
+        public MsgPackage(Int32 aId, Action aAction, PackageType aType, Item[] aItems)
+            : base((UInt16)(16 + (aItems.Length * 20)))
+        {
+            Id = aId;
+            _Action = aAction;
+            Type = aType;
+
+            WriteUInt16(12, (UInt16)aItems.Length);
+
+            int offset = 16;
+            foreach (Item item in aItems)
+            {
+                WriteInt32(offset + 0, item.Id);
+                WriteInt32(offset + 4, item.Type);
+                mBuf[offset + 8] = 0; // Ident
+                mBuf[offset + 9] = item.FirstGem; // Gem1
+                mBuf[offset + 10] = item.SecondGem; // Gem2
+                mBuf[offset + 11] = item.Attribute; // Magic1
+                mBuf[offset + 12] = 0x00; // Magic2
+                mBuf[offset + 13] = item.Craft; // Magic3
+                WriteUInt16(offset + 14, item.Bless);
+                WriteUInt16(offset + 16, item.Enchant);
+                WriteUInt16(offset + 18, (UInt16)item.Restrain);
+                offset += 20;
+            }
+        }
+
+        /// <summary>
+        /// Process the message for the specified client.
+        /// </summary>
+        /// <param name="aClient">The client who sent the message.</param>
+        public override void Process(Client aClient)
+        {
+            Player player = aClient.Player;
+
+            switch (Type)
+            {
+                case PackageType.Storage:
                     {
-                        *((Int32*)(p + Pos + 0)) = (Int32)Item.UniqId;
-                        *((Int32*)(p + Pos + 4)) = (Int32)Item.Id;
-                        *((Byte*)(p + Pos + 8)) = (Byte)0x00; //Ident
-                        *((Byte*)(p + Pos + 9)) = (Byte)Item.Gem1;
-                        *((Byte*)(p + Pos + 10)) = (Byte)Item.Gem2;
-                        *((Byte*)(p + Pos + 11)) = (Byte)Item.Attr;
-                        *((Byte*)(p + Pos + 12)) = (Byte)0x00; //Magic2
-                        *((Byte*)(p + Pos + 13)) = (Byte)Item.Craft;
-                        *((Byte*)(p + Pos + 14)) = (Byte)Item.Bless;
-                        *((Byte*)(p + Pos + 15)) = (Byte)0x00; //Unknow
-                        *((Int16*)(p + Pos + 16)) = (Int16)Item.Enchant;
-                        *((Int16*)(p + Pos + 18)) = (Int16)Item.Restrain;
-                        Pos += 20;
+                        switch (_Action)
+                        {
+                            case Action.QueryList:
+                                {
+                                    NPC npc = null;
+                                    if (!World.AllNPCs.TryGetValue(Id, out npc))
+                                        return;
+
+                                    if (player.Map != npc.Map)
+                                        return;
+
+                                    if (!MyMath.CanSee(player.X, player.Y, npc.X, npc.Y, MyMath.NORMAL_RANGE))
+                                        return;
+
+                                    if (npc.IsStorageNpc())
+                                    {
+                                        Item[] items = player.GetWHItems((Int16)Id);
+                                        player.Send(new MsgPackage(Id, MsgPackage.Action.QueryList, Type, items));
+                                    }
+                                    break;
+                                }
+                            case Action.CheckIn:
+                                {
+                                    Item item = player.GetItemByUID(ItemId);
+                                    if (item == null)
+                                        return;
+
+                                    Item.Info info;
+                                    if (!Database.AllItems.TryGetValue(item.Type, out info))
+                                        return;
+
+                                    if (!info.IsStorageEnable())
+                                    {
+                                        player.SendSysMsg(StrRes.STR_CANT_STORAGE);
+                                        return;
+                                    }
+
+                                    NPC npc = null;
+                                    if (!World.AllNPCs.TryGetValue(Id, out npc))
+                                        return;
+
+                                    if (player.Map != npc.Map)
+                                        return;
+
+                                    if (!MyMath.CanSee(player.X, player.Y, npc.X, npc.Y, MyMath.NORMAL_RANGE))
+                                        return;
+
+                                    if (!npc.IsStorageNpc())
+                                        return;
+
+                                    if (Id != 16)
+                                    {
+                                        if (player.ItemInWarehouse((Int16)Id) >= 20)
+                                            return;
+                                    }
+                                    else
+                                    {
+                                        if (player.ItemInWarehouse((Int16)Id) >= 40)
+                                            return;
+                                    }
+
+                                    item.Position = (UInt16)Id;
+                                    player.Send(new MsgItem(item.Id, 0, MsgItem.Action.Drop));
+
+                                    Item[] items = player.GetWHItems((Int16)Id);
+                                    player.Send(new MsgPackage(Id, Action.QueryList, PackageType.Storage, items));
+                                    break;
+                                }
+                            case Action.CheckOut:
+                                {
+                                    Item item = player.GetItemByUID(ItemId);
+                                    if (item == null)
+                                        return;
+
+                                    NPC npc = null;
+                                    if (!World.AllNPCs.TryGetValue(Id, out npc))
+                                        return;
+
+                                    if (player.Map != npc.Map)
+                                        return;
+
+                                    if (!MyMath.CanSee(player.X, player.Y, npc.X, npc.Y, MyMath.NORMAL_RANGE))
+                                        return;
+
+                                    if (!npc.IsStorageNpc())
+                                        return;
+
+                                    item.Position = 0;
+                                    player.Send(new MsgItemInfo(item, MsgItemInfo.Action.AddItem));
+
+                                    Item[] items = player.GetWHItems((Int16)Id);
+                                    player.Send(new MsgPackage(Id, Action.QueryList, PackageType.Storage, items));
+                                    break;
+                                }
+                            default:
+                                {
+                                    sLogger.Error("Action {1}  for type {0} is not implemented for MsgPackage.", (Byte)Type, (Byte)_Action);
+                                    break;
+                                }
+                        }
+                        break;
                     }
-                }
-                return Out;
+                default:
+                    {
+                        sLogger.Error("Type {0} is not implemented for MsgPackage.", (Byte)Type);
+                        break;
+                    }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
-        }
-
-        public static void Process(Client Client, Byte[] Buffer)
-        {
-            try
-            {
-                Int16 MsgLength = (Int16)((Buffer[0x01] << 8) + Buffer[0x00]);
-                Int16 MsgId = (Int16)((Buffer[0x03] << 8) + Buffer[0x02]);
-                Int32 UniqId = (Int32)((Buffer[0x07] << 24) + (Buffer[0x06] << 16) + (Buffer[0x05] << 8) + Buffer[0x04]);
-                Action Action = (Action)Buffer[0x08];
-                Type Type = (Type)Buffer[0x09];
-                Int16 Unknow = (Int16)((Buffer[0x0B] << 8) + Buffer[0x0A]);
-                Int32 Param = (Int32)((Buffer[0x0F] << 24) + (Buffer[0x0E] << 16) + (Buffer[0x0D] << 8) + Buffer[0x0C]);
-
-                Player Player = Client.User;
-
-                switch (Type)
-                {
-                    case Type.Storage:
-                        {
-                            switch (Action)
-                            {
-                                case Action.QueryList:
-                                    {
-                                        NPC Npc = null;
-                                        if (!World.AllNPCs.TryGetValue(UniqId, out Npc))
-                                            return;
-
-                                        if (Player.Map != Npc.Map)
-                                            return;
-
-                                        if (!MyMath.CanSee(Player.X, Player.Y, Npc.X, Npc.Y, 17))
-                                            return;
-
-                                        if (Npc.IsStorageNpc())
-                                        {
-                                            Item[] Items = Player.GetWHItems((Int16)UniqId);
-                                            Player.Send(MsgPackage.Create(UniqId, MsgPackage.Action.QueryList, Type, Items));
-                                        }
-                                        break;
-                                    }
-                                case Action.CheckIn:
-                                    {
-                                        Item Item = Player.GetItemByUID(Param);
-                                        if (Item == null)
-                                            return;
-
-                                        ItemType.Entry Info;
-                                        if (!Database2.AllItems.TryGetValue(Item.Id, out Info))
-                                            return;
-
-                                        if (!Info.IsStorageEnable())
-                                        {
-                                            Player.SendSysMsg(Client.GetStr("STR_CANT_STORAGE"));
-                                            return;
-                                        }
-
-                                        NPC Npc = null;
-                                        if (!World.AllNPCs.TryGetValue(UniqId, out Npc))
-                                            return;
-
-                                        if (Player.Map != Npc.Map)
-                                            return;
-
-                                        if (!MyMath.CanSee(Player.X, Player.Y, Npc.X, Npc.Y, 17))
-                                            return;
-
-                                        if (!Npc.IsStorageNpc())
-                                            return;
-
-                                        if (UniqId != 16)
-                                        {
-                                            if (Player.ItemInWarehouse((Int16)UniqId) >= 20)
-                                                return;
-                                        }
-                                        else
-                                        {
-                                            if (Player.ItemInWarehouse((Int16)UniqId) >= 40)
-                                                return;
-                                        }
-
-                                        Item.Position = (UInt16)UniqId;
-                                        Player.Send(MsgItem.Create(Item.UniqId, 0, MsgItem.Action.Drop));
-
-                                        Item[] Items = Player.GetWHItems((Int16)UniqId);
-                                        Player.Send(MsgPackage.Create(UniqId, Action.QueryList, Type.Storage, Items));
-                                        Items = null;
-                                        break;
-                                    }
-                                case Action.CheckOut:
-                                    {
-                                        Item Item = Player.GetItemByUID(Param);
-                                        if (Item == null)
-                                            return;
-
-                                        NPC Npc = null;
-                                        if (!World.AllNPCs.TryGetValue(UniqId, out Npc))
-                                            return;
-
-                                        if (Player.Map != Npc.Map)
-                                            return;
-
-                                        if (!MyMath.CanSee(Player.X, Player.Y, Npc.X, Npc.Y, 17))
-                                            return;
-
-                                        if (!Npc.IsStorageNpc())
-                                            return;
-
-                                        Item.Position = 0;
-                                        Player.Send(MsgItemInfo.Create(Item, MsgItemInfo.Action.AddItem));
-
-                                        Item[] Items = Player.GetWHItems((Int16)UniqId);
-                                        Player.Send(MsgPackage.Create(UniqId, Action.QueryList, Type.Storage, Items));
-                                        Items = null;
-                                        break;
-                                    }
-                                default:
-                                    {
-                                        Console.WriteLine("Msg[{0}], Type[{2}], Action[{1}] not implemented yet!", MsgId, (Int16)Action, (Int16)Type);
-                                        break;
-                                    }
-                            }
-                            break;
-                        }
-                    default:
-                        {
-                            Console.WriteLine("Msg[{0}], Type[{1}] not implemented yet!", MsgId, (Int16)Type);
-                            break;
-                        }
-                }
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
         }
     }
 }

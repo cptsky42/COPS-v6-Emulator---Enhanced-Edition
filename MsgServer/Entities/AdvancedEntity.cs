@@ -1,59 +1,24 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010- 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
+using System.Collections.Generic;
+using COServer.Network;
 
 namespace COServer.Entities
 {
-    public class AdvancedEntity : Entity
+    public abstract class AdvancedEntity : Entity
     {
-        public enum Flag : long
-        {
-            None = 0x00,
-            Flashing = 0x01,
-            Poisoned = 0x02,
-            //Invisible = 0x04,
-            //Unknow = 0x08
-            XPList = 0x10,
-            Frozen = 0x20,
-            TeamLeader = 0x40,
-            Accuracy = 0x80,
-            Shield = 0x100,
-            Stigma = 0x200,
-            Die = 0x400,
-            //FadeOut = 0x800,
-            AzureShield = 0x1000,
-            //0x2000 -> None
-            RedName = 0x4000,
-            BlackName = 0x8000,
-            //0x10000 -> None
-            //0x20000 -> None
-            SuperMan = 0x40000,
-            ThirdMetempsychosis = 0x80000,
-            FourthMetempsychosis = 0x100000,
-            FifthMetempsychosis = 0x200000,
-            Invisibility = 0x400000,
-            Cyclone = 0x800000,
-            SixthMetempsychosis = 0x1000000,
-            SeventhMetempsychosis = 0x2000000,
-            EighthMetempsychosis = 0x4000000,
-            Flying = 0x8000000,
-            NinthMetempsychosis = 0x10000000,
-            TenthMetempsychosis = 0x20000000,
-            CastingPray = 0x40000000,
-            Praying = 0x80000000,
-        };
-
         public String Name;
-        public Int64 Flags;
         public Int32 CurHP;
         public Int32 MaxHP;
-        public Int16 Level;
-        public Int16 Action;
-        public Int16 PrevMap;
-        public UInt16 PrevX;
-        public UInt16 PrevY;
+        public UInt16 Level;
+        public Emotion Action;
 
         public Int32 MinAtk;
         public Int32 MaxAtk;
@@ -63,7 +28,6 @@ namespace COServer.Entities
         public Int32 MagicBlock;
         public Int32 Dexterity;
         public Int32 Dodge;
-        public Int32 Weight;
         public Int32 AtkRange;
         public Int32 AtkSpeed;
         public Double Bless;
@@ -72,61 +36,170 @@ namespace COServer.Entities
         public Boolean IsInBattle;
         public Int32 TargetUID;
         public Int32 AtkType;
-        public Int16 MagicType;
+        public UInt16 MagicType;
         public Byte MagicLevel;
         public Boolean MagicIntone;
         public Int32 AtkSpeedT;
 
-        public Int32 AccuracyEndTime;
-        public Int32 StarOfAccuracyEndTime;
-        public Int32 ShieldEndTime;
-        public Int32 MagicShieldEndTime;
-        public Int32 AzureShieldEndTime;
-        public Int32 StigmaEndTime;
-        public Int32 InvisibilityEndTime;
-        public Int32 SupermanEndTime;
-        public Int32 CycloneEndTime;
-        public Int32 FlyEndTime;
-        public Int32 DodgeEndTime;
+        /// <summary>
+        /// The value of the attached statuses as a bit field.
+        /// </summary>
+        public UInt32 Statuses { get { return mStatusesValue; } }
 
-        public Double DexterityBonus;
-        public Double DefenceBonus;
-        public Double AttackBonus;
-        public Double DodgeBonus;
-        public Double SpeedBonus;
-        public Int32 DefenceAddBonus;
+        /// <summary>
+        /// All the statuses attached to the entity.
+        /// </summary>
+        protected readonly Dictionary<Status, StatusEffect> mStatuses = new Dictionary<Status, StatusEffect>();
+        /// <summary>
+        /// The value of the attached statuses as a bit field.
+        /// </summary>
+        protected UInt32 mStatusesValue = 0;
+
+        /// <summary>
+        /// Attach a status to the entity.
+        /// </summary>
+        /// <param name="aStatus">The status to attach.</param>
+        /// <param name="aDuration"></param>
+        /// <param name="aData"></param>
+        public void AttachStatus(Status aStatus, int aDuration = -1, Object aData = null)
+        {
+            lock (mStatuses)
+            {
+                StatusEffect effect;
+                if (mStatuses.TryGetValue(aStatus, out effect))
+                {
+                    effect.Data = aData;
+                    effect.ResetTimeout(aDuration);
+                }
+                else
+                {
+                    mStatuses.Add(aStatus, new StatusEffect(aStatus, aDuration, aData));
+                }
+
+                mStatusesValue |= (UInt32)aStatus;
+
+                // update
+                var msg = new MsgUserAttrib(this, mStatusesValue, MsgUserAttrib.AttributeType.Flags);
+                World.BroadcastRoomMsg(this, msg);
+
+                if (IsPlayer())
+                {
+                    Player player = (Player)this;
+                    player.Send(msg);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Detach a status from the entity.
+        /// </summary>
+        /// <param name="aStatus">The status to detach.</param>
+        public void DetachStatus(Status aStatus)
+        {
+            lock (mStatuses)
+            {
+                if (mStatuses.ContainsKey(aStatus))
+                    mStatuses.Remove(aStatus);
+
+                mStatusesValue &= ~(UInt32)aStatus;
+
+                // update
+                var msg = new MsgUserAttrib(this, mStatusesValue, MsgUserAttrib.AttributeType.Flags);
+                World.BroadcastRoomMsg(this, msg);
+
+                if (IsPlayer())
+                {
+                    Player player = (Player)this;
+                    player.Send(msg);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Detach all the statuses from the entity.
+        /// </summary>
+        public void DetachAllStatuses()
+        {
+            lock (mStatuses)
+            {
+                mStatuses.Clear();
+                mStatusesValue = 0;
+
+                // update
+                var msg = new MsgUserAttrib(this, mStatusesValue, MsgUserAttrib.AttributeType.Flags);
+                World.BroadcastRoomMsg(this, msg);
+
+                if (IsPlayer())
+                {
+                    Player player = (Player)this;
+                    player.Send(msg);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Detach all the statuses from the entity and add back
+        /// the default ones.
+        /// </summary>
+        public void ResetStatuses()
+        {
+            DetachAllStatuses();
+
+            if (IsPlayer())
+            {
+                Player player = (Player)this;
+                if (player.PkPoints >= 30 && player.PkPoints < 100)
+                    AttachStatus(Status.RedName);
+                else if (player.PkPoints >= 100)
+                    AttachStatus(Status.BlackName);
+
+                if (player.Team != null && player.Team.Leader == player)
+                    AttachStatus(Status.TeamLeader);
+            }
+        }
+
+        public bool HasStatus(Status aStatus)
+        {
+            lock (mStatuses)
+            {
+                return (mStatusesValue & (UInt32)aStatus) != 0;
+            }
+        }
+
+        public bool GetStatus(Status aStatus, out StatusEffect aEffect)
+        {
+            lock (mStatuses)
+            {
+                return mStatuses.TryGetValue(aStatus, out aEffect);
+            }
+        }
 
         public AdvancedEntity(Int32 UniqId)
             : base(UniqId)
         {
-            this.Action = 100;
+            this.Action = Emotion.StandBy;
 
-            this.AccuracyEndTime = 0;
-            this.StarOfAccuracyEndTime = 0;
-            this.ShieldEndTime = 0;
-            this.MagicShieldEndTime = 0;
-            this.StigmaEndTime = 0;
-            this.InvisibilityEndTime = 0;
-            this.SupermanEndTime = 0;
-            this.CycloneEndTime = 0;
-            this.FlyEndTime = 0;
-            this.DodgeEndTime = 0;
-
-            this.DexterityBonus = 1;
-            this.DefenceBonus = 1;
-            this.AttackBonus = 1;
-            this.DodgeBonus = 1;
-            this.SpeedBonus = 1;
+            this.IsInBattle = false;
+            this.TargetUID = -1;
         }
 
-        public Boolean IsAlive() { return !ContainsFlag(Player.Flag.Die); }
+        public bool IsCriminal() { return HasStatus(Status.Crime) || HasStatus(Status.BlackName); }
+        public bool IsBlueName() { return HasStatus(Status.Crime); }
+        public bool IsRedName() { return HasStatus(Status.RedName); }
+        public bool IsBlackName() { return HasStatus(Status.BlackName); }
 
-        public Boolean ContainsFlag(Int64 Flag) { return (Flags & Flag) != 0; }
-        public void AddFlag(Int64 Flag) { Flags |= Flag; }
-        public void DelFlag(Int64 Flag) { Flags &= ~Flag; }
+        public bool IsPoisoned() { return HasStatus(Status.Poison); }
+        public bool IsFrozen() { return HasStatus(Status.Freeze); }
+        public bool IsTeamLeader() { return HasStatus(Status.TeamLeader); }
 
-        public Boolean ContainsFlag(Flag Flag) { return (Flags & (Int64)Flag) != 0; }
-        public void AddFlag(Flag Flag) { Flags |= (Int64)Flag; }
-        public void DelFlag(Flag Flag) { Flags &= ~(Int64)Flag; }
+        public bool HasMagicDefense() { return HasStatus(Status.MagicDefense); }
+        public bool HasMagicAttack() { return HasStatus(Status.MagicAttack); }
+        public bool HasMagicDodge() { return HasStatus(Status.MagicDodge); }
+
+        public bool IsAlive() { return !HasStatus(Status.Die); }
+
+        public bool IsFlying() { return HasStatus(Status.Flying); }
+        public bool IsCastingPray() { return HasStatus(Status.CastingPray); }
+        public bool IsPraying() { return HasStatus(Status.Praying); }
     }
 }

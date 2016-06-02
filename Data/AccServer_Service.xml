@@ -1,0 +1,12 @@
+<service>
+  <id>cops_accserver</id>
+  <name>COPS v6 - AccServer</name>
+  <description>The account server of COPS v6.</description>
+  <executable>C:\COPS v6 Emulator\Test Server\ServiceStub.exe</executable>
+  <!-- <logpath>C:\...\Server\Log</logpath> -->
+  <!-- <logmode>roll</logmode> -->
+  <startargument>start</startargument>
+  <startargument>AccServer64.exe</startargument>
+  <stopexecutable>C:\COPS v6 Emulator\Test Server\ServiceStub.exe</stopexecutable>
+  <stopargument>stop</stopargument>
+</service>

@@ -1,63 +1,879 @@
-﻿using System;
-using System.IO;
-using System.Text;
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
+
+using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
-using CO2_CORE_DLL;
-using CO2_CORE_DLL.IO;
-using CO2_CORE_DLL.Security.Cryptography;
+using System.IO;
+using COServer.Entities;
+using COServer.Script;
+using MoonSharp.Interpreter;
+using MySql.Data.MySqlClient;
 
 namespace COServer
 {
-    public unsafe static class Database2
+    public static partial class Database
     {
-        public static ItemType AllItems = new ItemType();
-        public static MagicType AllMagics = new MagicType();
+        /// <summary>
+        /// The logger of the class.
+        /// </summary>
+        private static readonly log4net.ILog sLogger = log4net.LogManager.GetLogger(typeof(Database));
 
-        private static COFAC Cipher = new COFAC();
-        //LevExp = 8F7
+        /// <summary>
+        /// The default MySQL pool.
+        /// </summary>
+        private static MySqlConnectionPool sDefaultPool = null;
 
-        public static void GetItemsInfo()
+        /// <summary>
+        /// The accounts MySQL pool.
+        /// </summary>
+        private static MySqlConnectionPool sAccPool = null;
+
+        public static readonly List<PasswayInfo> AllPassways = new List<PasswayInfo>();
+        public static readonly ConcurrentDictionary<Int32, MonsterInfo> AllMonsters = new ConcurrentDictionary<Int32, MonsterInfo>();
+        public static readonly List<Generator> AllGenerators = new List<Generator>();
+        public static readonly Dictionary<Int32, Item.Info> AllItems = new Dictionary<Int32, Item.Info>();
+        public static readonly Dictionary<Int32, ItemAddition> AllBonus = new Dictionary<Int32, ItemAddition>();
+        public static readonly Dictionary<Int32, ShopInfo> AllShops = new Dictionary<Int32, ShopInfo>();
+        public static readonly Dictionary<Byte, UInt32> AllLevExp = new Dictionary<Byte, UInt32>();
+        public static readonly Dictionary<Byte, Int32> AllWeaponSkillExp = new Dictionary<Byte, Int32>();
+        public static readonly Dictionary<Int32, Magic.Info> AllMagics = new Dictionary<Int32, Magic.Info>();
+        public static UInt16[,][] AllPointAllot = new UInt16[0, 0][];
+
+        /// <summary>
+        /// Setup the default MySQL connections pool.
+        /// </summary>
+        /// <param name="aHost">The hostname of the MySQL server</param>
+        /// <param name="aDatabase">The database to connect to</param>
+        /// <param name="aUsername">The username to use to connect to the database</param>
+        /// <param name="aPassword">The password to use to connect to the database</param>
+        /// <returns>True on success, false otherwise.</returns>
+        public static bool SetupMySQL(int aCount, String aHost, String aDatabase, String aUsername, String aPassword)
         {
-            try
+            sDefaultPool = MySqlConnectionPool.CreatePool(aCount, aHost, aDatabase, aUsername, aPassword);
+            if (sDefaultPool != null)
+                sDefaultPool.Name = "Default";
+
+            return sDefaultPool != null;
+        }
+
+        /// <summary>
+        /// Setup the accounts connections pool.
+        /// </summary>
+        /// <param name="aCount">The number of connections in the pool.</param>
+        /// <param name="aHost">The hostname of the MySQL server</param>
+        /// <param name="aDatabase">The database to connect to</param>
+        /// <param name="aUsername">The username to use to connect to the database</param>
+        /// <param name="aPassword">The password to use to connect to the database</param>
+        /// <returns>True on success, false otherwise.</returns>
+        public static bool SetupAccMySQL(int aCount, String aHost, String aDatabase, String aUsername, String aPassword)
+        {
+            sAccPool = MySqlConnectionPool.CreatePool(aCount, aHost, aDatabase, aUsername, aPassword);
+            if (sAccPool != null)
+                sAccPool.Name = "Accounts";
+
+            return sAccPool != null;
+        }
+
+        /// <summary>
+        /// Get the SQL command string for the specified prepared statement.
+        /// </summary>
+        /// <param name="aCommand">The command to convert to string</param>
+        /// <returns>The SQL command string</returns>
+        public static String GetSqlCommand(MySqlCommand aCommand)
+        {
+            String command = aCommand.CommandText;
+
+            foreach (MySqlParameter param in aCommand.Parameters)
+                command = command.Replace(param.ParameterName, "'" + param.Value.ToString() + "'");
+
+            return command;
+        }
+
+        /// <summary>
+        /// Authenticate a account ID / token pair.
+        /// </summary>
+        /// <param name="Client">The client object requesting the authentication.</param>
+        /// <param name="aAccountId">The account ID to authenticate.</param>
+        /// <param name="aToken">The token generated by the AccServer.</param>
+        /// <returns>True if the account/token pair exist, false otherwise.</returns>
+        public static Boolean Authenticate(Client aClient, UInt32 aAccountId, UInt32 aToken)
+        {
+            bool authenticated = false;
+            bool success = false;
+
+            if (aToken < 0x04000000U)
             {
-                Console.Write("Loading items informations...  ");
+                sLogger.Warn("Got an invalid token from {0}!", aClient.IPAddress);
+                return false;
+            }
 
-                String TmpFile = Path.GetTempFileName();
-                Cipher.GenerateKey(0x3297);
+            int year, month, day, hour, minute;
+            year = (int)(((aToken >> 20) & 0x3F) + 2000);
+            month = (int)((aToken >> 16) & 0x0F);
+            day = (int)((aToken >> 11) & 0x1F);
+            hour = (int)((aToken >> 6) & 0x1F);
+            minute = (int)(aToken & 0x3F);
 
-                using (FileStream Reader = new FileStream(Program.RootPath + "\\Database\\ItemType.dat", FileMode.Open, FileAccess.Read, FileShare.Read))
-                using (FileStream Writer = new FileStream(TmpFile, FileMode.Open, FileAccess.Write, FileShare.Read))
+            DateTime datetime = new DateTime(year, month, day, hour, minute, 0, DateTimeKind.Utc);
+            if ((DateTime.UtcNow - datetime).TotalMinutes > 5)
+            {
+                sLogger.Warn("Got an expired token from {0}!", aClient.IPAddress);
+                return false;
+            }
+
+            using (var connection = sAccPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
                 {
-                    Byte[] Buffer = new Byte[Kernel.MAX_BUFFER_SIZE];
+                    command.CommandText = "SELECT COUNT(*) FROM `account` WHERE `id` = @id AND `token` = @token";
+                    command.Parameters.AddWithValue("@id", aAccountId);
+                    command.Parameters.AddWithValue("@token", aToken);
+                    command.Prepare();
 
-                    Int32 Length = Reader.Read(Buffer, 0, Buffer.Length);
-                    while (Length > 0)
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    try
                     {
-                        fixed (Byte* pBuffer = Buffer)
-                            Cipher.Decrypt(pBuffer, Length);
-                        Writer.Write(Buffer, 0, Length);
+                        int count = Convert.ToInt32(command.ExecuteScalar());
+                        authenticated = count == 1;
 
-                        Length = Reader.Read(Buffer, 0, Buffer.Length);
+                        sLogger.Debug("Found {0} accounts for {1}.", count, aAccountId);
+                    }
+                    catch (MySqlException exc)
+                    {
+                        sLogger.Error("Failed to execute the following cmd : \"{0}\"\nError {1}: {2}",
+                            GetSqlCommand(command), exc.Number, exc.Message);
                     }
                 }
 
-                AllItems.LoadFromTxt(TmpFile);
-                File.Delete(TmpFile);
+                if (authenticated)
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = "SELECT `name` FROM `account` WHERE `id` = @id";
+                        command.Parameters.AddWithValue("@id", aAccountId);
+                        command.Prepare();
 
-                Console.WriteLine("Ok!");
+                        sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                        try
+                        {
+                            using (var reader = command.ExecuteReader())
+                            {
+                                int count = 0;
+
+                                while (reader.Read())
+                                {
+                                    ++count;
+
+                                    aClient.AccountID = aAccountId;
+                                    aClient.Account = reader.GetString("name");
+                                }
+                                success = count == 1;
+
+                                if (count != 1)
+                                    sLogger.Error("The command should return only one result, not {0}.", count);
+                            }
+                        }
+                        catch (MySqlException exc)
+                        {
+                            sLogger.Error("Failed to execute the following cmd : \"{0}\"\nError {1}: {2}",
+                                GetSqlCommand(command), exc.Number, exc.Message);
+                        }
+                    }
+                }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
+
+            return authenticated & success;
+        }
+
+        public static void GetAllMaps()
+        {
+            sLogger.Info("Loading all maps in memory...");
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT `id`, `doc_id`, `type`, `weather`, `portal_x`, `portal_y`, `reborn_map`, `reborn_portal`, `light` FROM `map`";
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            UInt32 mapId = reader.GetUInt32("id");
+
+                            GameMap.Info info = new GameMap.Info
+                            {
+                                DocId = reader.GetUInt16("doc_id"),
+                                Type = reader.GetUInt32("type"),
+                                Weather = (WeatherType)reader.GetUInt32("weather"),
+                                PortalX = reader.GetUInt16("portal_x"),
+                                PortalY = reader.GetUInt16("portal_y"),
+                                RebornMap = reader.GetUInt32("reborn_map"),
+                                Light = reader.GetUInt32("light")
+                            };
+
+                            if (!MapManager.CreateMap(mapId, info))
+                                sLogger.Error("Failed to create map {0}.", mapId);
+                        }
+                    }
+                }
+            }
+        }
+
+        public static void GetPortalsInfo()
+        {
+            sLogger.Info("Loading portals informations...");
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT `mapid`, `passway_idx`, `portal_mapid`, `portal_idx` FROM `passway`";
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            PasswayInfo passway = new PasswayInfo
+                            {
+                                MapId = reader.GetUInt32("mapid"),
+                                Idx = reader.GetUInt32("passway_idx"),
+                                PortalMap = reader.GetUInt32("portal_mapid"),
+                                PortalIdx = reader.GetUInt32("portal_idx"),
+                                PortalX = 0,
+                                PortalY = 0
+                            };
+
+                            AllPassways.Add(passway);
+                        }
+                    }
+                }
+
+                foreach (PasswayInfo passway in AllPassways)
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = "SELECT `portal_x`, `portal_y` FROM `portal` WHERE `mapid` = @portal_mapid AND `idx` = @portal_idx";
+                        command.Parameters.AddWithValue("@portal_mapid", passway.PortalMap);
+                        command.Parameters.AddWithValue("@portal_idx", passway.PortalIdx);
+                        command.Prepare();
+
+                        sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                        using (var reader = command.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                passway.PortalX = reader.GetUInt16("portal_x");
+                                passway.PortalY = reader.GetUInt16("portal_y");
+                            }
+                            else
+                            {
+                                sLogger.Warn("Portal {0} of map {1} is missing but required by passway {2} of map {3}.",
+                                    passway.PortalIdx, passway.PortalMap, passway.Idx, passway.MapId);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        public static void GetMonstersInfo()
+        {
+            sLogger.Info("Loading monsters informations...");
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = (
+                        "SELECT `id`, `name`, `type`, `ai_type`, `look`, `level`, `life`, `escape_life`, " +
+                        "`attack_user`, `attack_min`, `attack_max`, `defense`, `dexterity`, `dodge`, " +
+                        "`magic_type`, `magic_def`, `magic_hitrate`, `view_range`, `attack_range`, " +
+                        "`attack_speed`, `move_speed`, `run_speed`, " +
+                        "`drop_armet`, `drop_necklace`, `drop_armor`, `drop_ring`, `drop_weapon`, `drop_shield`, `drop_shoes`, " +
+                        "`drop_money`, `drop_hp`, `drop_mp`, `extra_exp`, `extra_damage` FROM `monstertype`");
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            MonsterInfo monster_type = new MonsterInfo
+                            {
+                                Id = reader.GetInt32("id"),
+                                Name = reader.GetString("name"),
+                                Type = reader.GetByte("type"),
+                                AIType = reader.GetByte("ai_type"),
+                                Look = reader.GetUInt32("look"),
+                                Level = reader.GetByte("level"),
+                                Life = reader.GetUInt16("life"),
+                                EscapeLife = reader.GetUInt16("escape_life"),
+                                AtkUser = reader.GetByte("attack_user"),
+                                MinAtk = reader.GetUInt32("attack_min"),
+                                MaxAtk = reader.GetUInt32("attack_max"),
+                                Defense = reader.GetUInt32("defense"),
+                                Dexterity = reader.GetByte("dexterity"),
+                                Dodge = reader.GetByte("dodge"),
+                                MagicType = reader.GetUInt16("magic_type"),
+                                MagicDef = reader.GetUInt32("magic_def"),
+                                MagicHitrate = reader.GetUInt32("magic_hitrate"),
+                                ViewRange = reader.GetByte("view_range"),
+                                AtkRange = reader.GetByte("attack_range"),
+                                AtkSpeed = reader.GetUInt16("attack_speed"),
+                                MoveSpeed = reader.GetUInt16("move_speed"),
+                                RunSpeed = reader.GetUInt16("run_speed"),
+                                DropArmet = reader.GetByte("drop_armet"),
+                                DropNecklace = reader.GetByte("drop_necklace"),
+                                DropArmor = reader.GetByte("drop_armor"),
+                                DropRing = reader.GetByte("drop_ring"),
+                                DropWeapon = reader.GetByte("drop_weapon"),
+                                DropShield = reader.GetByte("drop_shield"),
+                                DropShoes = reader.GetByte("drop_shoes"),
+                                DropMoney = reader.GetUInt32("drop_money"),
+                                DropHP = reader.GetUInt32("drop_hp"),
+                                DropMP = reader.GetUInt32("drop_mp"),
+                                ExtraExp = reader.GetUInt16("extra_exp"),
+                                ExtraDamage = reader.GetUInt16("extra_damage")
+                            };
+
+                            AllMonsters.TryAdd(monster_type.Id, monster_type);
+                        }
+                    }
+                }
+            }
+
+
+            String[] scripts = Directory.GetFiles(Program.RootPath + "/Drops", "*.lua");
+
+            for (Int32 i = 0; i < scripts.Length; i++)
+            {
+                FileInfo file = new FileInfo(scripts[i]);
+                Int32 uid = Int32.Parse(file.Name.Replace(".lua", ""));
+
+                try
+                {
+                    MonsterTask task = new MonsterTask(uid, file.FullName);
+
+                    MonsterInfo info;
+                    if (AllMonsters.TryGetValue(uid, out info))
+                    {
+                        info.OnDie = task;
+                        AllMonsters.TryUpdate(uid, info, AllMonsters[uid]);
+                    }
+                }
+                catch (SyntaxErrorException exc)
+                {
+                    sLogger.Error("Failed to load the task {0}. Error: {1}",
+                        uid, exc.Message);
+                }
+            }
+        }
+
+        public static void GetSpawnsInfo()
+        {
+            sLogger.Info("Loading spawns informations...");
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT `mapid`, `bound_x`, `bound_y`, `bound_cx`, `bound_cy`, `max_npc`, `rest_secs`, `max_per_gen`, `monster_type` FROM `generator`";
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            GameMap map;
+                            MonsterInfo monster_type;
+
+                            if (!MapManager.TryGetMap(reader.GetUInt32("mapid"), out map))
+                            {
+                                sLogger.Warn("Map {0} is not loaded, but required by a generator.",
+                                    reader.GetUInt32("mapid"));
+                                continue;
+                            }
+
+                            if (!Database.AllMonsters.TryGetValue(reader.GetInt32("monster_type"), out monster_type))
+                            {
+                                sLogger.Warn("Monster {0} is not loaded, but required by a generator.",
+                                    reader.GetInt32("monster_type"));
+                                continue;
+                            }
+
+                            Generator generator = new Generator(
+                                map, reader.GetUInt16("bound_x"), reader.GetUInt16("bound_y"), reader.GetUInt16("bound_cx"), reader.GetUInt16("bound_cy"),
+                                reader.GetUInt16("max_npc"), reader.GetUInt16("rest_secs"), reader.GetUInt16("max_per_gen"), monster_type);
+
+                            AllGenerators.Add(generator);
+                        }
+                    }
+                }
+            }
+        }
+
+        public static void GetAllNPCs()
+        {
+            sLogger.Info("Loading all npcs in memory...");
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT `id`, `name`, `type`, `lookface`, `mapid`, `cellx`, `celly`, `base`, `sort`  FROM `npc`";
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            Int32 id = reader.GetInt32("id");
+                            String name = reader.GetString("name");
+                            Byte type = reader.GetByte("type");
+                            UInt32 look = reader.GetUInt32("lookface");
+                            UInt32 mapId = reader.GetUInt32("mapid");
+                            UInt16 posX = reader.GetUInt16("cellx");
+                            UInt16 posY = reader.GetUInt16("celly");
+                            Byte npc_base = reader.GetByte("base");
+                            Byte npc_sort = reader.GetByte("sort");
+
+                            GameMap map;
+                            if (!MapManager.TryGetMap(mapId, out map))
+                            {
+                                sLogger.Warn("Missing map {0} for NPC {1} ({2})",
+                                    mapId, name, id);
+                                continue;
+                            }
+
+                            if (World.AllNPCs.ContainsKey(id))
+                                continue;
+
+                            NPC npc = new NPC(id, name, type, look, map, posX, posY, npc_base, npc_sort);
+
+                            World.AllNPCs.Add(npc.UniqId, npc);
+                            npc.Map.AddEntity(npc);
+                        }
+                    }
+                }
+
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT `ownerid`, `ownertype`, `name`, `type`, `lookface`, `mapid`, `cellx`, `celly`, `life`, `base`, `sort`, `level`, `defence`, `magic_def` FROM `dynanpc`";
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            String name = reader.GetString("name");
+                            Byte type = reader.GetByte("type");
+                            UInt32 look = reader.GetUInt32("lookface");
+                            UInt32 mapId = reader.GetUInt32("mapid");
+                            UInt16 posX = reader.GetUInt16("cellx");
+                            UInt16 posY = reader.GetUInt16("celly");
+                            Byte npc_base = reader.GetByte("base");
+                            Byte npc_sort = reader.GetByte("sort");
+
+                            Byte level = reader.GetByte("level");
+                            UInt32 life = reader.GetUInt32("life");
+                            UInt16 defense = reader.GetUInt16("defence");
+                            Byte magicDef = reader.GetByte("magic_def");
+
+                            GameMap map;
+                            if (!MapManager.TryGetMap(mapId, out map))
+                                continue;
+
+                            TerrainNPC npc = new TerrainNPC(
+                                World.GetNextDynaNpcUID(), name, type, look, map, posX, posY, npc_base, npc_sort,
+                                level, life, defense, magicDef);
+
+                            World.AllTerrainNPCs.Add(npc.UniqId, npc);
+                            npc.Map.AddEntity(npc);
+                        }
+                    }
+                }
+            }
+        }
+
+        public static void GetItemsInfo()
+        {
+            sLogger.Info("Loading items informations...");
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = (
+                        "SELECT `id`, `name`, `req_profession`, `req_weaponskill`, `req_level`, `req_sex`, " + 
+                        "`req_force`, `req_speed`, `req_health`, `req_soul`, `monopoly`, `weight`, `price`, `task`, " + 
+                        "`attack_max`, `attack_min`, `defense`, `dexterity`, `dodge`, `life`, `mana`, " + 
+                        "`amount`, `amount_limit`, `status`, `gem1`, `gem2`, `magic1`, `magic2`, `magic3`, " + 
+                        "`magic_atk`, `magic_def`, `atk_range`, `atk_speed` FROM `itemtype`");
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            Item.Info entry = new Item.Info();
+
+                            entry.ID = reader.GetInt32("id");
+                            entry.Name = reader.GetString("name");
+                            entry.RequiredProfession = reader.GetByte("req_profession");
+                            entry.RequiredWeaponSkill = reader.GetByte("req_weaponskill");
+                            entry.RequiredLevel = reader.GetByte("req_level");
+                            entry.RequiredSex = reader.GetByte("req_sex");
+                            entry.RequiredForce = reader.GetUInt16("req_force");
+                            entry.RequiredSpeed = reader.GetUInt16("req_speed");
+                            entry.RequiredHealth = reader.GetUInt16("req_health");
+                            entry.RequiredSoul = reader.GetUInt16("req_soul");
+                            entry.Monopoly = reader.GetByte("monopoly");
+                            entry.Weight = reader.GetUInt16("weight");
+                            entry.Price = reader.GetUInt32("price");
+                            entry.Task = null;
+                            entry.MaxAttack = reader.GetUInt16("attack_max");
+                            entry.MinAttack = reader.GetUInt16("attack_min");
+                            entry.Defense = reader.GetInt16("defense");
+                            entry.Dexterity = reader.GetInt16("dexterity");
+                            entry.Dodge = reader.GetInt16("dodge");
+                            entry.Life = reader.GetInt16("life");
+                            entry.Mana = reader.GetInt16("mana");
+                            entry.Amount = reader.GetUInt16("amount");
+                            entry.AmountLimit = reader.GetUInt16("amount_limit");
+                            entry.Status = reader.GetByte("status");
+                            entry.Gem1 = reader.GetByte("gem1");
+                            entry.Gem2 = reader.GetByte("gem2");
+                            entry.Magic1 = reader.GetByte("magic1");
+                            entry.Magic2 = reader.GetByte("magic2");
+                            entry.Magic3 = reader.GetByte("magic3");
+                            entry.MagicAttack = reader.GetUInt16("magic_atk");
+                            entry.MagicDefence = reader.GetUInt16("magic_def");
+                            entry.Range = reader.GetUInt16("atk_range");
+                            entry.AttackSpeed = reader.GetUInt16("atk_speed");
+
+                            if (!AllItems.ContainsKey(entry.ID))
+                                AllItems.Add(entry.ID, entry);
+                        }
+                    }
+                }
+            }
+
+            String[] scripts = Directory.GetFiles(Program.RootPath + "/Items", "*.lua");
+
+            for (Int32 i = 0; i < scripts.Length; i++)
+            {
+                FileInfo file = new FileInfo(scripts[i]);
+                Int32 uid = Int32.Parse(file.Name.Replace(".lua", ""));
+
+                try
+                {
+                    ItemTask task = new ItemTask(uid, file.FullName);
+
+                    Item.Info info;
+                    if (AllItems.TryGetValue(uid, out info))
+                    {
+                        info.Task = task;
+                        AllItems[uid] = info;
+                    }
+                }
+                catch (SyntaxErrorException exc)
+                {
+                    sLogger.Error("Failed to load the task {0}. Error: {1}",
+                        uid, exc.Message);
+                }
+            }
+        }
+
+        public static void GetItemsBonus()
+        {
+            sLogger.Info("Loading items bonus...");
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT `typeid`, `level`, `life`, `attack_max`, `attack_min`, `defense`, `magic_atk`, `magic_def`, `dexterity`, `dodge` FROM `itemaddition`";
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            Int32 id = (int)((reader.GetUInt32("typeid") * 100) + reader.GetByte("level"));
+
+                            if (AllBonus.ContainsKey(id))
+                            {
+                                sLogger.Warn("Duplicated entry for itemaddition typeid={0}, level={1}",
+                                    reader.GetUInt32("typeid"), reader.GetByte("level"));
+                                continue;
+                            }
+
+                            ItemAddition bonus = new ItemAddition
+                            {
+                                Id = id,
+                                Life = reader.GetInt16("life"),
+                                MinAtk = reader.GetInt16("attack_min"),
+                                MaxAtk = reader.GetInt16("attack_max"),
+                                Defence = reader.GetInt16("defense"),
+                                MAtk = reader.GetInt16("magic_atk"),
+                                MDef = reader.GetInt16("magic_def"),
+                                Dexterity = reader.GetInt16("dexterity"),
+                                Dodge = reader.GetInt16("dodge")
+                            };
+
+                            AllBonus.Add(bonus.Id, bonus);
+                        }
+                    }
+                }
+            }
+        }
+
+        public static void GetShopsInfo()
+        {
+            sLogger.Info("Loading shops informations...");
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT `ownerid`, `itemtype` FROM `goods`";
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            Int32 id = (Int32)reader.GetUInt32("ownerid");
+                            Int32 itemId = (Int32)reader.GetUInt32("itemtype");
+
+                            ShopInfo shop = new ShopInfo
+                            {
+                                Id = id,
+                                Items = new List<Int32>()
+                            };
+
+                            if (AllShops.ContainsKey(id))
+                                shop = AllShops[id];
+
+                            if (shop.Items.Contains(itemId))
+                            {
+                                sLogger.Warn("Duplicated entry for goods ownerid={0}, itemtype={1}",
+                                    id, itemId);
+                                continue;
+                            }
+
+                            shop.Items.Add(itemId);
+
+                            AllShops[id] = shop;
+                        }
+                    }
+                }
+            }
+        }
+
+        public static void GetLevelsInfo()
+        {
+            sLogger.Info("Loading levels informations...");
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT `level`, `exp` FROM `levelexp`";
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            Byte level = reader.GetByte("level");
+                            AllLevExp.Add(level, reader.GetUInt32("exp"));
+                        }
+                    }
+                }
+            }
+        }
+
+        public static void LoadWeaponSkillReqExp()
+        {
+            sLogger.Info("Loading required experience for weapon skills...");
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT `level`, `exp` FROM `weaponskillexp`";
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            AllWeaponSkillExp.Add(reader.GetByte("level"), reader.GetInt32("exp"));
+                        }
+                    }
+                }
+            }
+        }
+
+        public static void GetPointAllotInfo()
+        {
+            sLogger.Info("Loading point allot informations...");
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT `profession`, `level`, `force`, `speed`, `health`, `soul` FROM `point_allot`";
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        AllPointAllot = new UInt16[200, 121][]; // HACK ! TODO REMOVE ME
+                        while (reader.Read())
+                        {
+                            Byte prof = reader.GetByte("profession");
+                            Byte level = reader.GetByte("level");
+
+                            if (prof == 10)
+                                prof = 19; // HACK ! TODO REMOVE ME
+                            prof *= 10; // HACK ! TODO REMOVE ME
+
+                            AllPointAllot[prof, level] = new UInt16[4];
+                            AllPointAllot[prof, level][0] = reader.GetUInt16("force"); // Strength
+                            AllPointAllot[prof, level][1] = reader.GetUInt16("speed"); // Agility
+                            AllPointAllot[prof, level][2] = reader.GetUInt16("health"); // Vitality
+                            AllPointAllot[prof, level][3] = reader.GetUInt16("soul"); // Spirit
+                        }
+                    }
+                }
+            }
         }
 
         public static void GetMagicsInfo()
         {
-            try
+            sLogger.Info("Loading magics informations...");
+
+            using (FileStream stream = new FileStream(Program.RootPath + "/Database/MagicType.dat", FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                Console.Write("Loading magics informations...  ");
-                AllMagics.LoadFromDat(Program.RootPath + "\\Database\\MagicType.dat");
-                Console.WriteLine("Ok!");
+                using (BinaryReader reader = new BinaryReader(stream, Program.Encoding))
+                {
+                    Int32 count = reader.ReadInt32();
+                    stream.Seek(sizeof(Int32) * count, SeekOrigin.Current);
+
+                    Dictionary<int, int> nextMagics = new Dictionary<int, int>();
+                    for (Int32 i = 0; i < count; ++i)
+                    {
+                        Magic.Info entry = new Magic.Info();
+
+                        entry.Type = (UInt16)reader.ReadUInt32();
+                        entry.Sort = (MagicSort)reader.ReadUInt32();
+                        stream.Seek(Magic.MAX_NAMESIZE, SeekOrigin.Current);
+                        entry.Crime = reader.ReadUInt32() != 0;
+                        entry.Ground = reader.ReadUInt32() != 0;
+                        entry.Multi = reader.ReadUInt32() != 0;
+                        entry.Target = reader.ReadUInt32();
+                        entry.Level = (UInt16)reader.ReadUInt32();
+                        if (entry.Level > 9)
+                            sLogger.Warn("Magic {0} has a possible level higher than 9!", entry.Type);
+                        entry.UseMP = (UInt16)reader.ReadUInt32();
+                        entry.Power = reader.ReadUInt32();
+                        entry.IntoneDuration = (UInt16)reader.ReadUInt32();
+                        entry.Success = (Byte)reader.ReadUInt32();
+                        entry.StepSecs = reader.ReadUInt32();
+                        entry.Range = (Byte)reader.ReadUInt32(); // X= %100, y= %10000 - x*100
+                        entry.Distance = (Byte)reader.ReadUInt32();
+                        entry.Status = reader.ReadUInt32();
+                        entry.ReqProf = (Byte)reader.ReadUInt32();
+                        entry.ReqExp = reader.ReadUInt32();
+                        entry.ReqLevel = (Byte)reader.ReadUInt32();
+                        entry.UseXP = (Byte)reader.ReadUInt32();
+                        entry.WeaponSubtype = (UInt16)reader.ReadUInt32();
+                        entry.ActiveTimes = reader.ReadUInt32();
+                        entry.AutoActive = reader.ReadUInt32() != 0;
+                        entry.FloorAttr = reader.ReadUInt32();
+                        entry.AutoLearn = reader.ReadUInt32() != 0;
+                        entry.LearnLevel = (Byte)reader.ReadUInt32();
+                        entry.DropWeapon = reader.ReadUInt32() != 0;
+                        entry.UseEP = (Byte)reader.ReadUInt32();
+                        entry.WeaponHit = reader.ReadUInt32() != 0;
+                        entry.UseItem = reader.ReadInt32();
+
+                        Int32 nextMagic = reader.ReadInt32();
+                        if (nextMagic > 0)
+                            nextMagics[(entry.Type * 10) + entry.Level] = nextMagic * 10;
+                        entry.NextMagicDelay = (UInt16)reader.ReadUInt32();
+
+                        entry.UseItemNum = (Byte)reader.ReadUInt32();
+                        stream.Seek(sizeof(UInt32), SeekOrigin.Current); // SenderAction
+                        stream.Seek(Magic.MAX_DESCSIZE, SeekOrigin.Current);
+                        stream.Seek(Magic.MAX_DESCEXSIZE, SeekOrigin.Current);
+                        stream.Seek(Magic.MAX_EFFECTSIZE, SeekOrigin.Current);
+                        stream.Seek(Magic.MAX_SOUNDSIZE, SeekOrigin.Current);
+                        stream.Seek(Magic.MAX_EFFECTSIZE, SeekOrigin.Current);
+                        stream.Seek(Magic.MAX_SOUNDSIZE, SeekOrigin.Current);
+                        stream.Seek(sizeof(UInt32), SeekOrigin.Current); // TargetDelay
+                        stream.Seek(Magic.MAX_EFFECTSIZE, SeekOrigin.Current);
+                        stream.Seek(Magic.MAX_SOUNDSIZE, SeekOrigin.Current);
+                        stream.Seek(Magic.MAX_EFFECTSIZE, SeekOrigin.Current);
+                        stream.Seek(Magic.MAX_EFFECTSIZE, SeekOrigin.Current);
+                        stream.Seek(sizeof(UInt32), SeekOrigin.Current);  // ScreenRepresent
+                        entry.UsableInMarket = reader.ReadUInt32() != 0;
+                        stream.Seek(sizeof(UInt32), SeekOrigin.Current); // TargetWoundDelay
+
+                        int id = (entry.Type * 10) + entry.Level;
+                        if (!AllMagics.ContainsKey(id))
+                            AllMagics.Add(id, entry);
+                    }
+
+                    foreach (var kv in nextMagics)
+                    {
+                        if (!AllMagics.ContainsKey(kv.Value))
+                        {
+                            sLogger.Warn("Magic {0} is required by {1}, but not loaded!",
+                                kv.Value, kv.Key);
+                            continue;
+                        }
+
+                        AllMagics[kv.Key].NextMagic = AllMagics[kv.Value];
+                    }
+                }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
         }
     }
 }

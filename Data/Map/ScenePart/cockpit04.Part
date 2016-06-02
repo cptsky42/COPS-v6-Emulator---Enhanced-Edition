@@ -1,0 +1,10 @@
+AniFile=ani\MapScene.ani
+AniTitle=cockpit04.tga
+OffsetX=-24
+OffsetY=-49
+AniInterval=200
+Width=1
+Height=2
+Thick=10
+Cell[0,0]={1,0,0}
+Cell[0,1]={1,0,0}

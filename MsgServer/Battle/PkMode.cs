@@ -1,11 +1,10 @@
 ﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2011
-// * Logik. Project
+// * Copyright © 2011, 2015
+// * COPS v6 Emulator
 
 using System;
-using System.Collections.Generic;
-using COServer.Network;
 using COServer.Entities;
+using COServer.Network;
 
 namespace COServer
 {
@@ -13,82 +12,62 @@ namespace COServer
     {
         public static Boolean CanAttack(Player Attacker, Player Target)
         {
-            try
+            //Pk Disable
+            if (Attacker.Map.IsPk_Disable())
+                return false;
+
+            if (Attacker.PkMode == PkMode.Safe)
+                return false;
+
+            if (Attacker.PkMode == PkMode.Arrestment)
+                if (!Target.IsCriminal()) //!BlueName && !BlackName
+                    return false;
+
+            if (Attacker.PkMode == PkMode.Team)
             {
-                Map Map = null;
-                if (!World.AllMaps.TryGetValue(Attacker.Map, out Map))
-                    return false;
-
-                //Pk Disable
-                if (Map.IsPk_Disable())
-                    return false;
-
-                if (Attacker.PkMode == (Byte)MsgAction.PkMode.Safe)
-                    return false;
-
-                if (Attacker.PkMode == (Byte)MsgAction.PkMode.Arrestment)
-                    if (!Target.ContainsFlag(Player.Flag.Flashing) && Target.PkPoints < 100) //!BlueName && !BlackName
+                if (Attacker.Team != null && Target.Team != null)
+                    if (Attacker.Team.UniqId == Target.Team.UniqId) //Same Team
                         return false;
 
-                if (Attacker.PkMode == (Byte)MsgAction.PkMode.Team)
-                {
-                    if (Attacker.Team != null && Target.Team != null)
-                        if (Attacker.Team.UniqId == Target.Team.UniqId) //Same Team
-                            return false;
+                if (Attacker.Friends.ContainsKey(Target.UniqId))
+                    return false;
 
-                    if (Attacker.Friends.ContainsKey(Target.UniqId))
+                //Same guild / allies
+                if (Attacker.Syndicate != null && Target.Syndicate != null)
+                    if (Attacker.Syndicate.Id == Target.Syndicate.Id)
                         return false;
 
-                    //Same guild / allies
-                    if (Attacker.Syndicate != null && Target.Syndicate != null)
-                        if (Attacker.Syndicate.UniqId == Target.Syndicate.UniqId)
-                            return false;
-
-                    if (Attacker.Syndicate != null && Target.Syndicate != null
-                        && Attacker.Syndicate.IsAnAlly(Target.Syndicate.UniqId))
-                        return false;
-                }
-
-                return true;
+                if (Attacker.Syndicate != null && Target.Syndicate != null
+                    && Attacker.Syndicate.IsAnAlly(Target.Syndicate.Id))
+                    return false;
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); return false; }
+
+            return true;
         }
 
         public static Boolean CanAttack(Player Attacker, Monster Target)
         {
-            try
-            {
-                if (Target.Id == 920)
-                    return false;
+            if (Target.Id == 920)
+                return false;
 
-                if ((Byte)(Target.Id / 100) != 9)
-                    return true;
-
-                if (Attacker.PkMode != (Byte)MsgAction.PkMode.Free)
-                    return false;
-
+            if ((Byte)(Target.Id / 100) != 9)
                 return true;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return false; }
+
+            if (Attacker.PkMode != PkMode.Free)
+                return false;
+
+            return true;
         }
 
         public static Boolean CanAttack(Player Attacker, TerrainNPC Target)
         {
-            try
+            if (Target.Type == (Byte)TerrainNPC.NpcType.SynFlag)
             {
-                if (Target.Type == (Byte)TerrainNPC.NpcType.SynFlag)
-                {
-                    if (!Target.IsAlive())
-                        return false;
-
-                    Int16 SynUID = Server.GetHolder(Target.Map);
-                    if (Attacker.Syndicate != null && Attacker.Syndicate.UniqId == SynUID)
-                        return false;
-                }
-
-                return true;
+                if (!Target.IsAlive())
+                    return false;
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); return false; }
+
+            return true;
         }
     }
 }

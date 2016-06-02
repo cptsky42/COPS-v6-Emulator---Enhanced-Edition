@@ -1,74 +1,198 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using COServer.Games;
+using System.Timers;
 using COServer.Network;
-using COServer.Threads;
-using CO2_CORE_DLL.IO;
 
 namespace COServer.Entities
 {
-    public class Player : AdvancedEntity
+    public class Player : AdvancedEntity, IDisposable
     {
-        public const Int32 _MAX_MONEYLIMIT = 1000000000;
+        public const UInt32 _MAX_MONEYLIMIT = 1000000000;
 
-        public Client Owner;
+        private String mMate = "None";
+        private UInt16 mHair = 0;
+
+        private bool mAutoAllot = true;
+        private Byte mMetempsychosis = 0;
+
+        public Client Client;
         public Screen Screen;
-        public PlayerThread Thread;
 
-        public String Spouse = "Non";
+        /// <summary>
+        /// The mate of the player.
+        /// </summary>
+        public String Mate
+        {
+            get { return mMate; }
+            set
+            {
+                mMate = value;
+                Database.UpdateField(this, "mate", mMate);
+
+                var msg = new MsgName(UniqId, mMate, MsgName.NameAct.Spouse);
+                Send(msg);
+            }
+        }
+
+        private const UInt32 MASK_CHANGELOOK = 10000000U;
+
+        /// <summary>
+        /// The look of the player.
+        /// </summary>
+        public override UInt32 Look
+        {
+            get
+            {
+                if (IsGhost())
+                {
+                    if (Sex == Sex.Man)
+                        return mLook + (MASK_CHANGELOOK * 98U);
+                    else
+                        return mLook + (MASK_CHANGELOOK * 99U);
+                }
+                else if (QueryTransformation().HasValue)
+                {
+                    return mLook + (MASK_CHANGELOOK * QueryTransformation().Value.Look);
+                }
+                else
+                    return mLook;
+            }
+            set
+            {
+                mLook = value;
+                Database.UpdateField(this, "lookface", mLook);
+
+                var msg = new MsgUserAttrib(this, mLook, MsgUserAttrib.AttributeType.Look);
+                World.BroadcastRoomMsg(this, msg, true);
+            }
+        }
+
+        /// <summary>
+        /// Whether or not the player is a ghost.
+        /// </summary>
+        private bool mIsGhost = false;
+
+        /// <summary>
+        /// Whether or not the player is a ghost.
+        /// </summary>
+        public bool IsGhost() { return mIsGhost; }
+
+        /// <summary>
+        /// Transform the player to a ghost.
+        /// </summary>
+        public void TransformGhost()
+        {
+            mIsGhost = true;
+
+            var msg = new MsgUserAttrib(this, Look, MsgUserAttrib.AttributeType.Look);
+            World.BroadcastRoomMsg(this, msg, true);
+        }
+
+        private MonsterInfo? mTransformation = null;
+
+        public MonsterInfo? QueryTransformation()
+        {
+            return mTransformation;
+        }
+
+        /// <summary>
+        /// The hair of the player.
+        /// </summary>
+        public UInt16 Hair
+        {
+            get { return mHair; }
+            set
+            {
+                mHair = value;
+                Database.UpdateField(this, "hair", mHair);
+
+                var msg = new MsgUserAttrib(this, mHair, MsgUserAttrib.AttributeType.Hair);
+                World.BroadcastRoomMsg(this, msg, true);
+            }
+        }
+
+        /// <summary>
+        /// The sex of the player.
+        /// </summary>
+        public Sex Sex
+        {
+            get { return (mLook / 1000U) % 2 == 0 ? Sex.Woman : Sex.Man; }
+        }
+
         public Byte Profession;
-        public UInt64 Exp;
+        public UInt32 Exp;
         public UInt16 Strength;
         public UInt16 Agility;
         public UInt16 Vitality;
         public UInt16 Spirit;
         public UInt16 AddPoints;
-        public Int32 Money;
-        public Int32 CPs;
+        public UInt32 Money;
         public UInt16 CurMP;
         public UInt16 MaxMP;
 
-        public Int16 Hair;
-        public Byte Metempsychosis;
+        /// <summary>
+        /// The metempsychosis of the player.
+        /// </summary>
+        public Byte Metempsychosis
+        {
+            get { return mMetempsychosis; }
+            set
+            {
+                mMetempsychosis = value;
+                Database.UpdateField(this, "metempsychosis", mMetempsychosis);
+
+                if (mMetempsychosis > 0)
+                    mAutoAllot = false;
+
+                var msg = new MsgUserAttrib(this, mMetempsychosis, MsgUserAttrib.AttributeType.Metempsychosis);
+                World.BroadcastRoomMsg(this, msg, true);
+            }
+        }
+
         public Int32 VPs;
         public Int16 PkPoints;
-        public Byte PkMode;
+        public PkMode PkMode;
         public Byte Energy;
         public Byte XP;
 
-        public Int16 Potency;
-
-        public Int32 WHMoney;
-        public Int32 WHPIN;
+        public UInt32 WHMoney;
+        /// <summary>
+        /// The PIN used to lock the account / depot.
+        /// </summary>
+        internal UInt32 mLockPin = 0;
 
         public Int32 KO;
         public Int32 CurKO;
         public Int32 TimeAdd;
 
-        public Int32 DisKO = 0;
-        public Int32 DisToKill = 0;
+        public GameMap PrevMap;
+        public UInt16 PrevX;
+        public UInt16 PrevY;
 
         public Byte FirstLevel;
         public Byte SecondLevel;
         public Byte FirstProfession;
         public Byte SecondProfession;
 
+        /// <summary>
+        /// Determine whether or not the stats points of the player
+        /// are automatically allocated.
+        /// </summary>
+        public bool AutoAllot { get { return mAutoAllot; } }
+
         public Double ExpBonus;
         public Double MagicBonus;
         public Double WeaponSkillBonus;
 
-        public Boolean AutoAllot;
-
-        public Byte TrainingPoints;
-
         public Int32 LastXPAdd;
-        public Int32 LastTrainingPointAdd;
-        public Int32 LastTrainingTimeAdd = 0;
         public Int32 LastPkPointRemove;
         public Int32 LastCoolShow;
         public Int32 LastSave;
@@ -83,22 +207,42 @@ namespace COServer.Entities
 
         public Int32 DblExpEndTime;
         public Int32 TransformEndTime;
-        public Int32 BlueNameEndTime;
-        public Int64 BlessEndTime;
-        public Int32 CurseEndTime;
 
         public Dictionary<Int32, Item> Items;
-        public Dictionary<Int32, WeaponSkill> WeaponSkills;
-        public Dictionary<Int32, Magic> Magics;
+
+        /// <summary>
+        /// Weapon skills of the player.
+        /// </summary>
+        public List<WeaponSkill> WeaponSkills
+        {
+            get
+            {
+                lock (mWeaponSkills)
+                    return new List<WeaponSkill>(mWeaponSkills.Values);
+            }
+        }
+
+        /// <summary>
+        /// Magic skills of the player.
+        /// </summary>
+        public List<Magic> Magics
+        {
+            get
+            {
+                lock (mMagics)
+                    return new List<Magic>(mMagics.Values);
+            }
+        }
+
         public Dictionary<Int32, String> Friends;
         public Dictionary<Int32, String> Enemies;
 		public Team Team;
-        public Syndicate.Info Syndicate;
-        public Nobility.Info Nobility;
+        public Syndicate Syndicate;
+
+        public Pet Pet = null;
 
         public Deal Deal;
         public Booth Booth;
-        public CageMatch Game;
 
         public Int32 TradeRequest;
         public Int32 FriendRequest;
@@ -107,41 +251,91 @@ namespace COServer.Entities
         public Boolean Mining;
 
         public Int32 PrevSpeedHackReset = Environment.TickCount;
-        public Int32 PrevAtkInterval;
-        public Int32 BotCheck = 0;
         public Int32 SpeedHack = 0;
 
-        public DateTime PremiumEndTime;
-
-        //Agreed ToS
-        public Boolean ToS = false;
-        public Int32 ConnectionTime;
-
         public Int32 JailC;
-
-        //Cheat
-        public Boolean AutoLoot;
-        public Boolean AutoMine;
-        public Boolean AutoKill;
-
-        public Int64 TrainingTicks = 0;
-        public Int32 MaxTrainingTime = 0;
 
         public const Int32 MAX_LUCKY_TIME = 2 * 60 * 60 * 1000;
         public Int32 LuckyTime = 0;
         public Boolean Praying;
         public Boolean CastingPray;
-        public Int16 PrayMap;
+        public UInt32 PrayMap;
         public UInt16 PrayX;
         public UInt16 PrayY;
 
-        public Player(Int32 UniqId, Client Owner)
+        public readonly List<Byte> UserTasks = new List<Byte>();
+        public readonly Dictionary<Tuple<int, int>, int> UserStats = new Dictionary<Tuple<int, int>, int>();
+
+        /// <summary>
+        /// Determine whether or not the player is a game master.
+        /// </summary>
+        public bool IsGM { get { return Name.EndsWith("[GM]"); } }
+        /// <summary>
+        /// Determine whether or not the player is a project master.
+        /// </summary>
+        public bool IsPM { get { return Name.EndsWith("[PM]"); } }
+
+        /// <summary>
+        /// Weapon skills of the player.
+        /// </summary>
+        private Dictionary<UInt32, WeaponSkill> mWeaponSkills = new Dictionary<UInt32, WeaponSkill>();
+        /// <summary>
+        /// Magic skills of the player.
+        /// </summary>
+        private Dictionary<UInt32, Magic> mMagics = new Dictionary<UInt32, Magic>();
+
+        /// <summary>
+        /// Registers used by Lua tasks.
+        /// 
+        /// First eight registers are integers, last
+        /// eight registers are strings.
+        /// </summary>
+        private object[] mRegisters = new object[16];
+
+
+        /// <summary>
+        /// Last messages count.
+        /// </summary>
+        private UInt32 mMsgCount = 0;
+        /// <summary>
+        /// Tick of first client response.
+        /// </summary>
+        private Int32 mFirstClientTick = 0;
+        /// <summary>
+        /// Tick of latest client response.
+        /// </summary>
+        private Int32 mLastClientTick = 0;
+        /// <summary>
+        /// The latest receive of the client tick.
+        /// </summary>
+        private DateTime mLastRcvClientTick = DateTime.MinValue;
+        /// <summary>
+        /// The tick of first server request.
+        /// </summary>
+        private DateTime mFirstServerTick = DateTime.MinValue;
+        /// <summary>
+        /// Tick of the latest server request.
+        /// </summary>
+        private DateTime mLastServerTick = DateTime.MinValue;
+        /// <summary>
+        /// The server ticks.
+        /// </summary>
+        private LinkedList<DateTime> mServerTicks = new LinkedList<DateTime>();
+
+        /// <summary>
+        /// Periodic timer of the player.
+        /// </summary>
+        private Timer mTimer;
+
+        /// <summary>
+        /// Indicate whether or not the object is disposed.
+        /// </summary>
+        private bool mIsDisposed = false;
+
+        public Player(Int32 UniqId, Client aClient)
             : base(UniqId)
         {
-            this.AutoAllot = true;
-
             this.LastXPAdd = Environment.TickCount;
-            this.LastTrainingPointAdd = Environment.TickCount;
             this.LastPkPointRemove = Environment.TickCount;
             this.LastCoolShow = Environment.TickCount;
             this.LastSave = Environment.TickCount + 30000;
@@ -153,237 +347,699 @@ namespace COServer.Entities
             this.LastAttackTick = Environment.TickCount;
             this.LastDieTick = Environment.TickCount;
 
-            this.ConnectionTime = Environment.TickCount;
-
             this.DblExpEndTime = 0;
             this.TransformEndTime = 0;
-            this.BlueNameEndTime = 0;
-            this.BlessEndTime = 0;
-            this.CurseEndTime = 0;
 
-            this.Owner = Owner;
+            this.Client = aClient;
             this.Screen = new Screen(this);
-            this.Thread = new PlayerThread(this);
 
             this.Items = new Dictionary<Int32, Item>();
-            this.WeaponSkills = new Dictionary<Int32, WeaponSkill>();
-            this.Magics = new Dictionary<Int32, Magic>();
             this.Friends = new Dictionary<Int32, String>();
             this.Enemies = new Dictionary<Int32, String>();
-            this.Nobility = new Nobility.Info();
+
+            mTimer = new Timer();
+            mTimer.Elapsed += new ElapsedEventHandler(TimerElapsed);
+            mTimer.Interval = 500; // 500 ms
+            mTimer.Start();
         }
 
         ~Player()
         {
-            Owner = null;
+            Client = null;
             Screen = null;
-            Thread = null;
 
             Items = null;
-            WeaponSkills = null;
-            Magics = null;
+            mWeaponSkills = null;
+            mMagics = null;
             Friends = null;
             Enemies = null;
 			Team = null;
             Syndicate = null;
+            Pet = null;
 
             Deal = null;
             Booth = null;
-            Game = null;
+
+            Dispose(false);
         }
 
-        public void SetDefaultFlag()
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing,
+        /// or resetting unmanaged resources.
+        /// </summary>
+        public void Dispose()
         {
-            Flags = (Int64)Player.Flag.None;
-            if (PkPoints >= 30 && PkPoints < 100)
-                AddFlag(Player.Flag.RedName);
-            else if (PkPoints >= 100)
-                AddFlag(Player.Flag.BlackName);
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
 
-            if (Team != null && Team.Leader == this)
-                AddFlag(Player.Flag.TeamLeader);
-
-            switch (Metempsychosis)
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing,
+        /// or resetting unmanaged resources.
+        /// </summary>
+        protected virtual void Dispose(bool aDisposing)
+        {
+            if (!mIsDisposed)
             {
-                case 3:
-                    AddFlag(Player.Flag.ThirdMetempsychosis);
-                    break;
-                case 4:
-                    AddFlag(Player.Flag.FourthMetempsychosis);
-                    break;
-                case 5:
-                    AddFlag(Player.Flag.FifthMetempsychosis);
-                    break;
-                case 6:
-                    AddFlag(Player.Flag.SixthMetempsychosis);
-                    break;
-                case 7:
-                    AddFlag(Player.Flag.SeventhMetempsychosis);
-                    break;
-                case 8:
-                    AddFlag(Player.Flag.EighthMetempsychosis);
-                    break;
-                case 9:
-                    AddFlag(Player.Flag.NinthMetempsychosis);
-                    break;
-                case 10:
-                    AddFlag(Player.Flag.TenthMetempsychosis);
-                    break;
+                if (aDisposing)
+                {
+                    if (mTimer != null)
+                        mTimer.Dispose();
+                }
+
+                mTimer = null;
+
+                mIsDisposed = true;
             }
         }
 
-        public Boolean IsMan() { return (Look - ((Int32)(Look / 10000) * 10000)) / 1000 == 1; }
-        public Boolean IsWoman() { return (Look - ((Int32)(Look / 10000) * 10000)) / 1000 == 2; }
-
-        public void Die()
+        /// <summary>
+        /// Check if the specified PIN match.
+        /// </summary>
+        /// <param name="aPin">The PIN to validate.</param>
+        /// <returns>True if the specified PIN match, false otherwise.</returns>
+        public bool CheckLockPin(UInt32 aPin)
         {
-            if (Game != null)
-                Game.PlayerDie(this);
+            if (mLockPin == 0)
+                return true;
 
-            if (Level > 15)
+            return aPin == mLockPin;
+        }
+
+        /// <summary>
+        /// Set the PIN used to lock the account / depot.
+        /// </summary>
+        /// <param name="aPin">The new PIN of the account.</param>
+        /// <returns>True on success, false otherwise.</returns>
+        public bool SetLockPin(UInt32 aPin)
+        {
+            mLockPin = aPin;
+            return Database.UpdateField(this, "depot_pin", mLockPin);
+        }
+
+        /// <summary>
+        /// Get the data of the specified register.
+        /// </summary>
+        /// <param name="aId">The ID of the register.</param>
+        /// <returns>The data of the specified register, or null.</returns>
+        public object GetRegData(byte aId)
+        {
+            if (aId > mRegisters.Length)
+                return null;
+
+            return mRegisters[aId];
+        }
+
+        /// <summary>
+        /// Set the data of the specified register.
+        /// </summary>
+        /// <param name="aId">The ID of the register.</param>
+        /// <param name="aData">The data to assign to the register.</param>
+        /// <returns>True if the assignation succeeded, false otherwise.</returns>
+        public bool SetRegData(byte aId, object aData)
+        {
+            if (aId > mRegisters.Length)
+                return false;
+
+            mRegisters[aId] = aData;
+            return true;
+        }
+
+        /// <summary>
+        /// Recalculate the maximum HP of the player.
+        /// </summary>
+        /// <returns>The maximum HP of the player.</returns>
+        public UInt16 CalcMaxHP()
+        {
+            if (TransformEndTime != 0)
+                return (UInt16)MaxHP;
+
+            int life = ((Strength * 3) + (Agility * 3) + (Vitality * 24) + (Spirit * 3));
+
+            switch (Profession)
             {
-                Map CMap = World.AllMaps[Map];
-                if (!CMap.IsPkField() && !CMap.IsSynMap() && !CMap.IsPrisonMap())
-                {
-                    DropMoney();
-                    DropInventory();
+                case 11:
+                    life = (int)(life * 1.05);
+                    break;
+                case 12:
+                    life = (int)(life * 1.08);
+                    break;
+                case 13:
+                    life = (int)(life * 1.10);
+                    break;
+                case 14:
+                    life = (int)(life * 1.12);
+                    break;
+                case 15:
+                    life = (int)(life * 1.15);
+                    break;
+            }
 
-                    if (PkPoints >= 30)
-                        DropEquipment();
+            lock (Items)
+            {
+                foreach (Item item in Items.Values)
+                {
+                    if (item.Position > 0 && item.Position < 10)
+                    {
+                        life += item.Enchant;
+                        life += item.Life;
+
+                        ItemAddition bonus;
+                        if (Database.AllBonus.TryGetValue(ItemHandler.GetBonusId(item.Type, item.Craft), out bonus))
+                            life += (UInt16)bonus.Life;
+                    }
                 }
             }
 
-            CurHP = 0;
-            Send(MsgUserAttrib.Create(this, CurHP, MsgUserAttrib.Type.Life));
-            if (Team != null)
-                World.BroadcastTeamMsg(Team, MsgUserAttrib.Create(this, CurHP, MsgUserAttrib.Type.Life));
+            life = Math.Max(0, life);
 
-            SetDefaultFlag();
-            AddFlag(Player.Flag.Die);
-            AddFlag(Player.Flag.Frozen);
-            World.BroadcastRoomMsg(this, MsgUserAttrib.Create(this, Flags, MsgUserAttrib.Type.Flags), true);
+            MaxHP = (UInt16)life;
+            return (UInt16)life;
+        }
+
+        /// <summary>
+        /// Recalculate the maximum MP of the player.
+        /// </summary>
+        /// <returns>The maximum MP of the player.</returns>
+        public UInt16 CalcMaxMP()
+        {
+            int mana = (Spirit * 5);
+
+            if (Profession > 100 && Profession < 200)
+                mana += (int)(mana * (Profession % 10));
+
+            lock (Items)
+            {
+                foreach (Item item in Items.Values)
+                {
+                    if (item.Position > 0 && item.Position < 10)
+                        mana += item.Mana;
+                }
+            }
+
+            mana = Math.Max(0, mana);
+
+            MaxMP = (UInt16)mana;
+            return (UInt16)mana;
+        }
+
+        /// <summary>
+        /// Get the effect of all gems on the attack of the player.
+        /// </summary>
+        /// <returns>The effect of all gems on the attack of the player.</returns>
+        public double GetGemAtkEffect()
+        {
+            double effect = 1.0;
+
+            lock (Items)
+            {
+                foreach (Item item in Items.Values)
+                {
+                    if (item.Position > 0 && item.Position < 10)
+                        effect += item.GetGemDmgEffect();
+                }
+            }
+
+            return effect;
+        }
+
+        /// <summary>
+        /// Get the effect of all gems on the magic attack of the player.
+        /// </summary>
+        /// <returns>The effect of all gems on the magic attack of the player.</returns>
+        public double GetGemMAtkEffect()
+        {
+            double effect = 1.0;
+
+            lock (Items)
+            {
+                foreach (Item item in Items.Values)
+                {
+                    if (item.Position > 0 && item.Position < 10)
+                        effect += item.GetGemMgcAtkEffect();
+                }
+            }
+
+            return effect;
+        }
+
+        public void Die(AdvancedEntity aKiller)
+        {
+            ////////////////////////////////////////////////////////////
+            // TODO cleanup
+            CurHP = 0;
+            Send(new MsgUserAttrib(this, CurHP, MsgUserAttrib.AttributeType.Life));
+            if (Team != null)
+                Team.BroadcastMsg(new MsgUserAttrib(this, CurHP, MsgUserAttrib.AttributeType.Life));
 
             if (TransformEndTime != 0)
             {
-                MyMath.GetHitPoints(this, true);
-                MyMath.GetMagicPoints(this, true);
+                CalcMaxHP();
+                CalcMaxMP();
             }
 
             TransformEndTime = 0;
-            BlueNameEndTime = 0;
             Mining = false;
+            ////////////////////////////////////////////////////////////
 
-            XP = 0;
-            Send(MsgUserAttrib.Create(this, XP, MsgUserAttrib.Type.XP));
 
-            if (Look % 10000 == 2001 || Look % 10000 == 2002)
-                AddTransform(99);
-            else
-                AddTransform(98);
-            World.BroadcastRoomMsg(this, MsgUserAttrib.Create(this, Look, MsgUserAttrib.Type.Look), true);
+            bool dropItem = Profession % 10 > 0;
+            bool dropExp = Profession % 10 > 0;
+
+            //    ClrAttackTarget();
+            //    if (QueryMagic())
+            //        QueryMagic()->AbortMagic(true);
+            //    CallBackAllEudemon();
+            //    DetachEudemon();
+
+            ResetStatuses();
+            AttachStatus(Status.Die);
+            AttachStatus(Status.Freeze);
+
+            mIsGhost = false;
+            TransformGhost();
 
             //Block - Revive Hack
             LastDieTick = Environment.TickCount;
-        }
 
-        public void Reborn(Boolean ChangeMap)
-        {
-            AccuracyEndTime = 0;
-            StarOfAccuracyEndTime = 0;
-            ShieldEndTime = 0;
-            MagicShieldEndTime = 0;
-            StigmaEndTime = 0;
-            InvisibilityEndTime = 0;
-            SupermanEndTime = 0;
-            CycloneEndTime = 0;
-            FlyEndTime = 0;
-            DodgeEndTime = 0;
+            //    OBJID	idRebornMap = ID_NONE;
+            //    POINT	pos;
+            //    if (this->GetLev() <= MAX_RETURN_BORN_POS_LEV)
+            //    {
+            //        CGameMap* pMap = MapManager()->GetGameMap(DEFAULT_LOGIN_MAPID);
+            //        IF_OK (pMap)
+            //            this->SetRecordPos(pMap->GetID(), DEFAULT_LOGIN_POSX, DEFAULT_LOGIN_POSY);
+            //    }
+            //    else
+            //    {
+            //        IF_OK(GetMap()->GetRebornMap(&idRebornMap, &pos))
+            //            this->SetRecordPos(idRebornMap, pos.x, pos.y);
+            //    }
+            //    KillCallPet();
 
-            DexterityBonus = 1;
-            DefenceBonus = 1;
-            AttackBonus = 1;
-            DodgeBonus = 1;
-            SpeedBonus = 1;
-
-            Action = (Int16)MsgAction.Emotion.StandBy;
-
-            CurHP = MaxHP;
-            Send(MsgUserAttrib.Create(this, CurHP, MsgUserAttrib.Type.Life));
-            if (Team != null)
-                World.BroadcastTeamMsg(Team, MsgUserAttrib.Create(this, CurHP, MsgUserAttrib.Type.Life));
-
-            XP = 0;
-            Send(MsgUserAttrib.Create(this, XP, MsgUserAttrib.Type.XP));
-            LastXPAdd = Environment.TickCount;
-
-            Energy = 100;
-            Send(MsgUserAttrib.Create(this, Energy, MsgUserAttrib.Type.Energy));
-
-            SetDefaultFlag();
-            World.BroadcastRoomMsg(this, MsgUserAttrib.Create(this, Flags, MsgUserAttrib.Type.Flags), true);
-
-            DelTransform();
-            World.BroadcastRoomMsg(this, MsgUserAttrib.Create(this, Look, MsgUserAttrib.Type.Look), true);
-
-            MyMath.GetEquipStats(this);
-            if (ChangeMap)
+            if (Map.IsPkField() || Map.IsSynMap())
             {
-                Map OldMap = null;
-                Map NewMap = null;
+                //            // drop item
+                //            {
+                //                int nChance = 30;
+                //                if(!pMap->IsDeadIsland() && bDropItem) // ËÀÍöµº²»µôÎïÆ·
+                //                    m_pPackage->RandDropItem(_MAP_PKFIELD, nChance);
 
-                if (!World.AllMaps.TryGetValue(Map, out OldMap))
-                    return;
+                //            }
 
-                if (!World.AllMaps.TryGetValue(OldMap.RebornMap, out NewMap))
-                    return;
+                //            // fly out
+                //            /*if (pMap->IsPkField())
+                //            {
+                //                if (idRebornMap != ID_NONE)
+                //                    this->FlyMap(idRebornMap, pos.x, pos.y);
+                //            }
+                //            */
 
-                Move(NewMap.UniqId, NewMap.PortalX, NewMap.PortalY);
+                //            // set reborn pos to DoubleDragon city if not in syn war but in syn map
+                //            if (pMap->IsSynMap() && !pMap->IsWarTime())
+                //            {
+                //                CONST OBJID ID_DDCITY	= 1002;
+                //                CONST POINT POS_REBORN	= { 438, 398 };
+                //                this->SetRecordPos(ID_DDCITY, POS_REBORN.x, POS_REBORN.y);
+                //            }
+
+                return;
             }
-            World.BroadcastRoomMsg(this, MsgAction.Create(this, 0, MsgAction.Action.Reborn), true);
-        }
-
-        public UInt64 CalcExpBall(Byte Level, UInt64 CurExp, Double Amount)
-        {
-            if (Level >= Database.AllLevExp.Length)
-                return 0;
-
-            if (Level >= Database.AllLevTime.Length)
-                return 0;
-
-            UInt64 Exp = 0;
-            Int32 Time = (Int32)(600.00 * Amount);
-
-            if (CurExp > 0)
+            else if (Map.IsPrisonMap())
             {
-                Double Pct = 1.00 - (Double)CurExp / (Double)Database.AllLevExp[Level];
-                if (Time > (Int32)(Pct * Database.AllLevTime[Level]))
+                //            // drop item
+                //            {
+                //                if(!pMap->IsDeadIsland() && bDropItem) // ËÀÍöµº²»µôÎïÆ·
+                //                {
+                //                    int nChance = __min(90, 20+this->GetPk()/2);
+                //                    m_pPackage->RandDropItem(_MAP_PRISON, nChance);
+                //                }
+
+                //            }
+
+                return;
+            }
+
+            if (aKiller == null)
+                return;
+
+            if (aKiller.IsPlayer() && true)// && !Map.IsDeadIsland())
+            {
+                Player killer = aKiller as Player;
+
+                var syn = Syndicate;
+                var synKiller = killer.Syndicate;
+
+                if (syn != null && synKiller != null && (syn.IsHostile(synKiller.Id) || synKiller.IsHostile(syn.Id)))
                 {
-                    Time -= (Int32)(Pct * Database.AllLevTime[Level]);
-                    Exp += Database.AllLevExp[Level] - CurExp;
-                    Level++;
+                    //       this->QuerySynAttr()->DecProffer(PROFFER_BEKILL);
+                }
+
+                if (!IsCriminal() && !IsRedName())
+                {
+                    if (killer.Enemies.ContainsKey(UniqId))
+                        killer.PkPoints += 5;
+                    else if (killer.Syndicate != null && Syndicate != null
+                        && killer.Syndicate.IsHostile(Syndicate.Id))
+                        killer.PkPoints += 3;
+                    else
+                        killer.PkPoints += 10;
+
+                    if (killer.PkPoints > 30000)
+                        killer.PkPoints = 30000;
+
+                    killer.Send(new MsgUserAttrib(killer, killer.PkPoints, MsgUserAttrib.AttributeType.PkPoints));
+
+                    if (killer.PkPoints >= 30 && killer.PkPoints < 100)
+                    {
+                        if (!killer.IsRedName())
+                            killer.AttachStatus(Status.RedName);
+                    }
+                    else if (killer.PkPoints >= 100)
+                    {
+                        if (!killer.IsBlackName())
+                        {
+                            killer.DetachStatus(Status.RedName);
+                            killer.AttachStatus(Status.BlackName);
+                        }
+                    }
+                }
+
+                if (!IsBlueName())
+                {
+                    if (!Enemies.ContainsKey(killer.UniqId))
+                    {
+                        Enemies.Add(killer.UniqId, killer.Name);
+                        Send(new MsgFriend(killer.UniqId, killer.Name, MsgFriend.Status.Online, MsgFriend.Action.EnemyAdd));
+                    }
+                }
+
+                {
+                    UInt32 droppedMoney = 0;
+                    if (PkPoints < 30) // TODO constant
+                        droppedMoney = (UInt32)((Money * (MyMath.Generate(0, 40) + 10)) / 100);
+                    else if (PkPoints < 100) // TODO constant
+                        droppedMoney = (UInt32)((Money * (MyMath.Generate(0, 50) + 50)) / 100);
+                    else
+                        droppedMoney = Money;
+
+                    if (droppedMoney > 0)
+                    {
+                        Item money = null;
+                        if (droppedMoney <= 10) //Silver
+                            money = Item.CreateMoney(1090000);
+                        else if (droppedMoney <= 100) //Sycee
+                            money = Item.CreateMoney(1090010);
+                        else if (droppedMoney <= 1000) //Gold
+                            money = Item.CreateMoney(1090020);
+                        else if (droppedMoney <= 2000) //GoldBullion
+                            money = Item.CreateMoney(1091000);
+                        else if (droppedMoney <= 5000) //GoldBar
+                            money = Item.CreateMoney(1091010);
+                        else if (droppedMoney > 5000) //GoldBars
+                            money = Item.CreateMoney(1091020);
+                        else //Error
+                            money = Item.CreateMoney(1090000);
+
+                            UInt16 posX = X, posY = Y;
+                            if (Map.FindFloorItemCell(ref posX, ref posY, MyMath.USERDROP_RANGE))
+                            {
+                                Money -= droppedMoney;
+                                Send(new MsgUserAttrib(this, Money, MsgUserAttrib.AttributeType.Money));
+
+                                FloorItem floorItem = new FloorItem(money, droppedMoney, 0, Map, posX, posY);
+                                World.FloorThread.AddToQueue(floorItem);
+                            }
+                    }
+                }
+
+                if (dropItem)
+                {
+                    int chance = 0;
+                    if (PkPoints < 30) // TODO constant
+                        chance = 10 + MyMath.Generate(0, 40);
+                    else if (PkPoints < 100) // TODO constant
+                        chance = 50 + MyMath.Generate(0, 50);
+                    else
+                        chance = 100;
+
+                    int count = (ItemInInventory() * chance) / 100;
+                    for (int i = 0; i < count; ++i) // TODO refact this dangerous code
+                    {
+                        Item[] items = new Item[Items.Count];
+                        Items.Values.CopyTo(items, 0);
+
+                        do
+                        {
+                            int pos = MyMath.Generate(0, items.Length - 1);
+                            Item item = items[pos];
+
+                            if (item.Position != 0)
+                                continue;
+
+                            UInt16 posX = X, posY = Y;
+                            if (Map.FindFloorItemCell(ref posX, ref posY, MyMath.USERDROP_RANGE))
+                            {
+                                DelItem(item, true);
+
+                                FloorItem floorItem = new FloorItem(item, 0, 0, Map, posX, posY);
+                                World.FloorThread.AddToQueue(floorItem);
+                            }
+                            break;
+                        }
+                        while (true);
+                    }
+                }
+
+                if (dropItem)
+                {
+                    int count = 0;
+                    if (PkPoints >= 30) // TODO constant
+                        count = 1;
+
+                    List<Byte> positions = new List<Byte>();
+
+                    for (Byte i = 0; i < 10; ++i)
+                    {
+                        Item equip = GetItemByPos(i);
+                        if (equip != null /* TODO && !equip.IsNeverDropWhenDead()*/)
+                            positions.Add(i);
+                    }
+
+                    if (positions.Count > 0)
+                    {
+                        count = Math.Min(count, positions.Count);
+                        for (int i = 0; i < count; ++i)
+                        {
+                            int index = MyMath.Generate(0, positions.Count - 1);
+                            byte pos = positions[index];
+
+                            Item equip = GetItemByPos(pos);
+                            if (equip != null)
+                            {
+                                if (pos == 4) // TODO constant weapon right
+                                {
+                                    Item leftWeapon = GetItemByPos(5); // TODO constant weapon left
+                                    if (leftWeapon != null)
+                                        equip = leftWeapon;
+                                }
+
+                                UInt16 posX = X, posY = Y;
+                                if (Map.FindFloorItemCell(ref posX, ref posY, MyMath.USERDROP_RANGE))
+                                {
+                                    Send(new MsgItem(equip.Id, equip.Position, MsgItem.Action.Unequip));
+                                    DelItem(equip, true);
+
+                                    FloorItem floorItem = new FloorItem(equip, 0, 0, Map, posX, posY);
+                                    World.FloorThread.AddToQueue(floorItem);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (dropExp)
+                {
+                    UInt32 lostExp = (UInt32)(Exp * 0.02);
+                    if (IsRedName())
+                        lostExp = (UInt32)(Exp * 0.10);
+                    else if (IsBlackName())
+                        lostExp = (UInt32)(Exp * 0.20);
+
+                    if (Syndicate != null)
+                    {
+                        Syndicate.Member member = Syndicate.GetMemberInfo(UniqId);
+                        if (member != null)
+                        {
+                            UInt32 compensation = 0;
+                            if (member.Proffer > 0)
+                            {
+                                switch (member.Rank)
+                                {
+                                    case Syndicate.Rank.Leader:
+                                        compensation = (UInt32)(lostExp * 0.80);
+                                        break;
+                                    case Syndicate.Rank.SubLeader:
+                                        compensation = (UInt32)(lostExp * 0.60);
+                                        break;
+                                    case Syndicate.Rank.BranchMgr:
+                                        compensation = (UInt32)(lostExp * 0.40);
+                                        break;
+                                    case Syndicate.Rank.DeputyMgr:
+                                        compensation = (UInt32)(lostExp * 0.35);
+                                        break;
+                                    case Syndicate.Rank.InternMgr:
+                                        compensation = (UInt32)(lostExp * 0.30);
+                                        break;
+                                    default:
+                                        compensation = (UInt32)(lostExp * 0.25);
+                                        break;
+                                }
+                            }
+                            else
+                                compensation = (UInt32)(lostExp * 0.20);
+
+                            if (compensation > UInt32.MaxValue)
+                                compensation = UInt32.MaxValue;
+
+                            Syndicate.Money -= (UInt32)compensation;
+                            member.Proffer -= (UInt32)compensation;
+                            lostExp -= compensation;
+                        }
+                    }
+
+                    if (lostExp > 0)
+                    {
+                        if (Exp < lostExp)
+                            Exp = 0;
+                        else
+                            Exp -= lostExp;
+
+                        Send(new MsgUserAttrib(this, Exp, MsgUserAttrib.AttributeType.Exp));
+                        killer.AddExp(lostExp * 0.10, false);
+                    }
+                }
+
+                if (IsBlackName())
+                {
+                    World.BroadcastMsg(new MsgTalk("SYSTEM", "ALLUSERS", String.Format(StrRes.STR_SENT_TO_JAIL, Name), Channel.GM, Color.Red));
+                    Move(6000, 29, 72); // GotoJail();
+                    // PoliceWanted().DelWanted(this->GetID());
                 }
             }
-
-            while (Time > Database.AllLevTime[Level])
+            else if (aKiller.IsPlayer() && false) // Map.IsDeadIsland()
             {
-                Time -= Database.AllLevTime[Level];
-                Exp += Database.AllLevExp[Level];
-                Level++;
+                Player killer = aKiller as Player;
 
-                if (Level >= Database.AllLevExp.Length)
-                    return Exp;
-
-                if (Level >= Database.AllLevTime.Length)
-                    return Exp;
+                if (!IsBlueName())
+                {
+                    if (!Enemies.ContainsKey(killer.UniqId))
+                    {
+                        Enemies.Add(killer.UniqId, killer.Name);
+                        Send(new MsgFriend(killer.UniqId, killer.Name, MsgFriend.Status.Online, MsgFriend.Action.EnemyAdd));
+                    }
+                }
             }
-            Exp += (UInt64)(((Double)Time / (Double)Database.AllLevTime[Level]) * (Double)Database.AllLevExp[Level]);
+            else if (aKiller.IsMonster())
+            {
+                Monster killer = aKiller as Monster;
 
-            return Exp;
+                //        if (pRole->QueryObj(OBJ_MONSTER, IPP_OF(pMonster)))
+                //        {
+                //            CUser* pUser = pMonster->QueryOwnerUser();
+                //            // ×Ô¼º²»ÊÇ´¦ÓÚÉÁÀ¶×´Ì¬²Å¼Ó³ðÈË
+                //            if (pUser && !QueryStatus(STATUS_CRIME))
+                //                QueryEnemy()->Add(pUser->GetID(), pUser->GetName(), SYNCHRO_TRUE, UPDATE_TRUE);
+                //        }
+
+                //        if (!pMap->IsDeadIsland())
+                //        {
+                //            // money
+                //            DWORD dwMoneyLost = ::RandGet(this->GetMoney()/3);
+                //            if (dwMoneyLost > 0)
+                //                this->DropMoney(dwMoneyLost, this->GetPosX(), this->GetPosY());
+
+                //            // item
+                //            if (bDropItem)
+                //            {
+                //                int nChance = 33;
+                //                if (this->GetLev() < 10)
+                //                    nChance = 5;
+
+                //                m_pPackage->RandDropItem(_MAP_NONE, nChance);
+                //            }
+
+                //            // guard
+                //            if (pMonster && (pMonster->IsGuard() || pMonster->IsPkKiller()))
+                //            {
+                //                if (this->GetPk() >= PKVALUE_BLACKNAME)
+                //                    this->GotoJail();
+                //            }
+                //        }
+            }
         }
 
-        public UInt64 AddExp(Double Value, Boolean UseBonus)
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="aChangePos"></param>
+        public void Reborn(Boolean aChangePos)
         {
-            if (Level >= Database.AllLevExp.Length)
+            if (IsAlive())
+                return;
+            
+            MyMath.GetEquipStats(this); // TODO To remove
+
+            ResetStatuses();
+            mIsGhost = false;
+
+            XP = 0;
+            Send(new MsgUserAttrib(this, XP, MsgUserAttrib.AttributeType.XP));
+            LastXPAdd = Environment.TickCount;
+
+//    m_tAutoHealMaxLife.Clear();
+
+            CurHP = MaxHP;
+            Send(new MsgUserAttrib(this, CurHP, MsgUserAttrib.AttributeType.Life));
+
+            //CurMP = MaxMP;
+            //Send(new MsgUserAttrib(this, CurMP, MsgUserAttrib.AttributeType.Mana));
+
+            World.BroadcastRoomMsg(this, new MsgUserAttrib(this, Look, MsgUserAttrib.AttributeType.Look), true);
+
+            Energy = 100;
+            Send(new MsgUserAttrib(this, Energy, MsgUserAttrib.AttributeType.Energy));
+
+            Action = Emotion.StandBy;
+
+            if (Team != null)
+            {
+                Team.BroadcastMsg(new MsgUserAttrib(this,
+                    new Dictionary<MsgUserAttrib.AttributeType, UInt64>
+                    { 
+                        { MsgUserAttrib.AttributeType.Life, (UInt64)CurHP },
+                        { MsgUserAttrib.AttributeType.MaxLife, (UInt64)MaxHP }
+                    }));
+            }
+
+            if (aChangePos)
+            {
+                GameMap rebornMap = null;
+                if (MapManager.TryGetMap(Map.RebornMap, out rebornMap))
+                    Move(rebornMap.Id, rebornMap.PortalX, rebornMap.PortalY);
+            }
+
+//    // lock
+//    CRole::AttachStatus(this->QueryRole(), STATUS_PK_PROTECT, 0, CHGMAP_LOCK_SECS);
+////	m_tLock.Startup(CHGMAP_LOCK_SECS);
+
+            World.BroadcastRoomMsg(this, new MsgAction(this, 0, MsgAction.Action.Reborn), true);
+        }
+
+        public UInt32 AddExp(Double Value, Boolean UseBonus)
+        {
+            if (!Database.AllLevExp.ContainsKey((Byte)Level))
                 return 0;
 
             if (UseBonus)
@@ -391,30 +1047,21 @@ namespace COServer.Entities
                 if (DblExpEndTime > 0)
                     Value *= 2.00;
 
-                if (BlessEndTime > 0)
-                    Value *= 1.20;
-
                 if (LuckyTime > 0)
                     Value *= 1.10;
 
-                if (CurseEndTime > 0)
-                    Value *= 0.00;
-
                 if (Metempsychosis > 1)
-                    Value /= 3.00;
+                    Value /= Metempsychosis * 1.50;
 
-                Value += (Value * ((Double)Potency / 100.00));
-
-                Value *= Database.Rates.Exp;
                 Value *= ExpBonus;
             }
-            Exp += (UInt64)Value;
+            Exp += (UInt32)Value;
 
             Boolean Leveled = false;
-            if (Exp > Database.AllLevExp[Level])
+            if (Exp > Database.AllLevExp[(Byte)Level])
                 Leveled = true;
 
-            while (Exp > Database.AllLevExp[Level])
+            while (Exp > Database.AllLevExp[(Byte)Level])
             {
                 if (Level < 70 && Team != null)
                 {
@@ -422,13 +1069,15 @@ namespace COServer.Entities
                     {
                         if (Team.Leader.Map == Map)
                         {
-                            Team.Leader.VPs += Database.AllLevTime[Level];
-                            World.BroadcastTeamMsg(Team, MsgTalk.Create("SYSTEM", "ALLUSERS", Team.Leader.Name + " a obtenu " + Database.AllLevTime[Level] + " points de vertu.", MsgTalk.Channel.Team, 0xFFFFFF));
+                            Int32 vps = (Int32)((Level * 17f / 13f * 12f / 2f) + Level * 3f);
+
+                            Team.Leader.VPs += vps;
+                            Team.BroadcastMsg(new MsgTalk("SYSTEM", "ALLUSERS", Team.Leader.Name + " a obtenu " + vps + " points de vertu.", Channel.Team, Color.White));
                         }
                     }
                 }
 
-                Exp -= Database.AllLevExp[Level];
+                Exp -= Database.AllLevExp[(Byte)Level];
                 Level++;
 
                 if (Metempsychosis == 0 && Level <= 120)
@@ -436,31 +1085,30 @@ namespace COServer.Entities
                 else
                     AddPoints += 3;
 
-                if (Level >= Database.AllLevExp.Length)
+                if (!Database.AllLevExp.ContainsKey((Byte)Level))
                     break;
             }
 
             if (Leveled)
             {
-                MyMath.GetHitPoints(this, true);
-                MyMath.GetMagicPoints(this, true);
-                MyMath.GetPotency(this, true);
+                CalcMaxHP();
+                CalcMaxMP();
 
                 CurHP = MaxHP;
                 if (Team != null)
                 {
-                    World.BroadcastTeamMsg(Team, MsgUserAttrib.Create(this, CurHP, MsgUserAttrib.Type.Life));
-                    World.BroadcastTeamMsg(Team, MsgUserAttrib.Create(this, MaxHP, (MsgUserAttrib.Type.Life + 1)));
+                    Team.BroadcastMsg(new MsgUserAttrib(this, CurHP, MsgUserAttrib.AttributeType.Life));
+                    Team.BroadcastMsg(new MsgUserAttrib(this, MaxHP, (MsgUserAttrib.AttributeType.Life + 1)));
                 }
 
-                Send(MsgUserAttrib.Create(this, CurHP, MsgUserAttrib.Type.Life));
-                Send(MsgUserAttrib.Create(this, Strength, MsgUserAttrib.Type.Strength));
-                Send(MsgUserAttrib.Create(this, Agility, MsgUserAttrib.Type.Agility));
-                Send(MsgUserAttrib.Create(this, Vitality, MsgUserAttrib.Type.Vitality));
-                Send(MsgUserAttrib.Create(this, Spirit, MsgUserAttrib.Type.Spirit));
-                Send(MsgUserAttrib.Create(this, AddPoints, MsgUserAttrib.Type.AddPoints));
-                World.BroadcastRoomMsg(this, MsgUserAttrib.Create(this, Level, MsgUserAttrib.Type.Level), true);
-                World.BroadcastRoomMsg(this, MsgAction.Create(this, 0, MsgAction.Action.UpLev), true);
+                Send(new MsgUserAttrib(this, CurHP, MsgUserAttrib.AttributeType.Life));
+                Send(new MsgUserAttrib(this, Strength, MsgUserAttrib.AttributeType.Strength));
+                Send(new MsgUserAttrib(this, Agility, MsgUserAttrib.AttributeType.Agility));
+                Send(new MsgUserAttrib(this, Vitality, MsgUserAttrib.AttributeType.Vitality));
+                Send(new MsgUserAttrib(this, Spirit, MsgUserAttrib.AttributeType.Spirit));
+                Send(new MsgUserAttrib(this, AddPoints, MsgUserAttrib.AttributeType.AddPoints));
+                World.BroadcastRoomMsg(this, new MsgUserAttrib(this, Level, MsgUserAttrib.AttributeType.Level), true);
+                World.BroadcastRoomMsg(this, new MsgAction(this, 0, MsgAction.Action.UpLev), true);
 
                 if (Syndicate != null)
                 {
@@ -469,11 +1117,11 @@ namespace COServer.Entities
                         Member.Level = (Byte)Level;
                 }
             }
-            Send(MsgUserAttrib.Create(this, (Int64)Exp, MsgUserAttrib.Type.Exp));
-            return (UInt64)Value;
+            Send(new MsgUserAttrib(this, (Int64)Exp, MsgUserAttrib.AttributeType.Exp));
+            return (UInt32)Value;
         }
 
-        public void AddMagicExp(Int16 Type, Int32 Exp)
+        public void AddMagicExp(UInt16 Type, UInt32 Exp)
         {
             Magic Magic = GetMagicByType(Type);
             if (Magic == null)
@@ -484,42 +1132,41 @@ namespace COServer.Entities
                 Magic.Unlearn = false;
                 Magic.Level = 0;
                 Magic.Exp = 0;
-                Send(MsgMagicInfo.Create(Magic));
+                Send(new MsgMagicInfo(Magic));
             }
 
-            MagicType.Entry Info;
-            if (!Database2.AllMagics.TryGetValue((Magic.Type * 10) + Magic.Level, out Info))
+            Magic.Info Info;
+            if (!Database.AllMagics.TryGetValue((Magic.Type * 10) + Magic.Level, out Info))
                 return;
 
-            if (!Database2.AllMagics.ContainsKey((Magic.Type * 10) + Magic.Level + 1))
+            if (!Database.AllMagics.ContainsKey((Magic.Type * 10) + Magic.Level + 1))
                 return;
 
-            if (Level < Info.LevelRequired)
+            if (Level < Info.ReqLevel)
                 return;
- 
-            Exp = (Int32)(Exp * Database.Rates.Exp);
-            Exp = (Int32)(Exp * MagicBonus); 
 
-            if ((Magic.Exp + Exp >= Info.ExpRequired) || 
+            Exp = (UInt32)(Exp * MagicBonus); 
+
+            if ((Magic.Exp + Exp >= Info.ReqExp) || 
                 (Magic.Level >= (Byte)(Magic.OldLevel / 2) && Magic.Level < Magic.OldLevel))
             {
                 Magic.Level++;
                 Magic.Exp = 0;
-                Send(MsgMagicInfo.Create(Magic));
+                Send(new MsgMagicInfo(Magic));
                 return;
             }
 
             Magic.Exp += Exp;
-            UpdateMagic(Magic);
+            Send(new MsgFlushExp(Magic));
         }
 
-        public void AddWeaponSkillExp(Int16 Type, Int32 Exp)
+        public void AddWeaponSkillExp(UInt16 Type, UInt32 Exp)
         {
             WeaponSkill WeaponSkill = GetWeaponSkillByType(Type);
             if (WeaponSkill == null)
             {
-                WeaponSkill = WeaponSkill.Create(UniqId, Type, 0, 0, 0, false);
-                AddWeaponSkill(WeaponSkill, true);
+                WeaponSkill = WeaponSkill.Create(this, Type, 0);
+                AwardSkill(WeaponSkill, true);
             }
 
             if (WeaponSkill.Unlearn)
@@ -527,900 +1174,26 @@ namespace COServer.Entities
                 WeaponSkill.Unlearn = false;
                 WeaponSkill.Level = 0;
                 WeaponSkill.Exp = 0;
-                Send(MsgWeaponSkill.Create(WeaponSkill));
+                Send(new MsgWeaponSkill(WeaponSkill));
             }
 
-            if (WeaponSkill.Level >= Database.AllWeaponSkillExp.Length)
+            if (WeaponSkill.Level >= Database.AllWeaponSkillExp.Count)
                 return;
 
-            Exp = (Int32)(Exp * Database.Rates.Exp);
-            Exp = (Int32)(Exp * WeaponSkillBonus);
+            Exp = (UInt32)(Exp * WeaponSkillBonus);
 
             if ((WeaponSkill.Exp + Exp >= Database.AllWeaponSkillExp[WeaponSkill.Level]) ||
                 (WeaponSkill.Level >= (Byte)(WeaponSkill.OldLevel / 2) && WeaponSkill.Level < WeaponSkill.OldLevel))
             {
                 WeaponSkill.Level++;
                 WeaponSkill.Exp = 0;
-                Send(MsgWeaponSkill.Create(WeaponSkill));
+                Send(new MsgWeaponSkill(WeaponSkill));
                 return;
             }
 
             WeaponSkill.Exp += Exp;
-            UpdateWeaponSkill(WeaponSkill);
+            Send(new MsgFlushExp(WeaponSkill));
         }
-
-        public void DoMetempsychosis(Byte NewProfession, Boolean Bless)
-        {
-            Metempsychosis++;
-            if (Metempsychosis == 1)
-            {
-                FirstLevel = (Byte)Level;
-                FirstProfession = Profession;
-            }
-            else if (Metempsychosis == 2)
-            {
-                SecondLevel = (Byte)Level;
-                SecondProfession = Profession;
-            }
-            Profession = NewProfession;
-
-            Level = 15;
-            Exp = 0;
-            AutoAllot = false;
-
-            MyMath.GetLevelStats(this);
-
-            foreach (WeaponSkill Skill in WeaponSkills.Values)
-            {
-                Skill.OldLevel = Skill.Level;
-                if (Skill.OldLevel < 20)
-                    if (Skill.Exp >= Database.AllWeaponSkillExp[Skill.Level] / 2)
-                        Skill.OldLevel++;
-
-                Skill.Unlearn = true;
-
-                Skill.Level = 0;
-                Skill.Exp = 0;
-
-                Send(MsgAction.Create(this, Skill.Type, MsgAction.Action.DropSkill));
-            }
-
-            List<Magic> SkillToDel = new List<Magic>();
-            if (Metempsychosis == 1)
-            {
-                //Check skills to keep/delete
-                foreach (Magic Skill in Magics.Values)
-                {
-                    Boolean Keep = false;
-                    if (FirstProfession == 15)
-                    {
-                        if (NewProfession == 11)
-                            Keep = true;
-                        else if (NewProfession == 21 || NewProfession == 41 || NewProfession == 132 || NewProfession == 142)
-                        {
-                            if (Skill.Type == 1110 || Skill.Type == 1190 || Skill.Type == 1270)
-                                Keep = true;
-                        }
-                    }
-                    else if (FirstProfession == 25)
-                    {
-                        if (NewProfession == 11)
-                        {
-                            if (Skill.Type == 1040 || Skill.Type == 1320)
-                                Keep = true;
-                        }
-                        else if (NewProfession == 21)
-                            Keep = true;
-                        else if (NewProfession == 41 || NewProfession == 142)
-                        {
-                            if (Skill.Type == 1020 || Skill.Type == 1040)
-                                Keep = true;
-                        }
-                        else if (NewProfession == 132)
-                        {
-                            if (Skill.Type == 1020 || Skill.Type == 1025 || Skill.Type == 1040)
-                                Keep = true;
-                        }
-                    }
-                    else if (FirstProfession == 45)
-                    {
-                        if (NewProfession == 41)
-                            Keep = true;
-                    }
-                    else if (FirstProfession == 135)
-                    {
-                        if (NewProfession == 11 || NewProfession == 21)
-                        {
-                            if (Skill.Type == 1000 || Skill.Type == 1005 || Skill.Type == 1085 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 1280)
-                                Keep = true;
-                        }
-                        else if (NewProfession == 41)
-                        {
-                            if (Skill.Type == 1000 || Skill.Type == 1005 || Skill.Type == 1075 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 1280)
-                                Keep = true;
-                        }
-                        else if (NewProfession == 132)
-                            Keep = true;
-                        else if (NewProfession == 142)
-                        {
-                            if (Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1050 || Skill.Type == 1055 || Skill.Type == 1075 || Skill.Type == 1175 || Skill.Type == 1195 || Skill.Type == 1280)
-                                Keep = true;
-                        }
-                    }
-                    else if (FirstProfession == 145)
-                    {
-                        if (NewProfession == 11 || NewProfession == 21 || NewProfession == 41)
-                        {
-                            if (Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1195)
-                                Keep = true;
-                        }
-                        else if (NewProfession == 132)
-                        {
-                            if (Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1120 || Skill.Type == 1195)
-                                Keep = true;
-                        }
-                        else if (NewProfession == 142)
-                            Keep = true;
-                    }
-
-                    if (Skill.Type == 1000 || Skill.Type == 1005 || 
-                        Skill.Type == 1045 || Skill.Type == 1046 ||
-                        Skill.Type == 1220 || Skill.Type == 1260 || Skill.Type == 1290 || Skill.Type == 5040 || Skill.Type == 5050 || Skill.Type == 5010 || Skill.Type == 5020 || Skill.Type == 5030 || Skill.Type == 7010 || Skill.Type == 7020 ||
-                        Skill.Type == 1350 || Skill.Type == 1360 || Skill.Type == 3321 ||
-                        Skill.Type == 1380 || Skill.Type == 1385 || Skill.Type == 1390 || Skill.Type == 1395 || Skill.Type == 1400 || Skill.Type == 1405 || Skill.Type == 1410)
-                        Keep = true;
-
-                    if (Keep)
-                    {
-                        MagicType.Entry Info;
-                        if (Database2.AllMagics.TryGetValue(Skill.Type * 10 + Skill.Level, out Info))
-                        {
-                            Skill.OldLevel = Skill.Level;
-                            if (Skill.Exp >= Info.ExpRequired / 2)
-                                if (Database2.AllMagics.ContainsKey(Skill.Type * 10 + Skill.Level + 1))
-                                    Skill.OldLevel++;
-                        }
-
-                        Skill.Level = 0;
-                        Skill.Exp = 0;
-
-                        Send(MsgMagicInfo.Create(Skill));
-                    }
-                    else
-                        SkillToDel.Add(Skill);
-                }
-
-                //Delete some skills...
-                Magic[] Skills = SkillToDel.ToArray();
-                for (Int32 i = 0; i < Skills.Length; i++)
-                    DelMagic(Skills[i], true);
-                Skills = null;
-
-                //New Skill(s)
-                if (FirstProfession == 15)
-                {
-                    if (NewProfession == 11)
-                        AddMagic(Magic.Create(UniqId, 3050, 0, 0, 0, false), true); //CruelShade
-                    else if (NewProfession == 21)
-                        AddMagic(Magic.Create(UniqId, 5100, 0, 0, 0, false), true); //IronShirt
-                }
-                else if (FirstProfession == 45)
-                {
-                    if (NewProfession == 41)
-                        AddMagic(Magic.Create(UniqId, 5000, 0, 0, 0, false), true); //FreezingArrow
-                    else
-                        AddMagic(Magic.Create(UniqId, 5002, 0, 0, 0, false), true); //Poison
-                }
-                else if (FirstProfession == 135)
-                {
-                    if (NewProfession == 132)
-                        AddMagic(Magic.Create(UniqId, 3090, 0, 0, 0, false), true); //Pervade
-                }
-                else if (FirstProfession == 145)
-                {
-                    if (NewProfession == 142)
-                        AddMagic(Magic.Create(UniqId, 3080, 0, 0, 0, false), true); //Dodge
-                }
-            }
-            else if (Metempsychosis == 2)
-            {
-                foreach (Magic Skill in Magics.Values)
-                {
-                    Boolean Keep = false;
-                    if (FirstProfession == 15)
-                    {
-                        if (SecondProfession == 15)
-                        {
-                            if (NewProfession == 11)
-                                Keep = true;
-                            else if (NewProfession == 21 || NewProfession == 41 || NewProfession == 132 || NewProfession == 142)
-                            {
-                                if (Skill.Type == 1110 || Skill.Type == 1190 || Skill.Type == 1270 || Skill.Type == 3050)
-                                    Keep = true;
-                            }
-                        }
-                        else if (SecondProfession == 25)
-                        {
-                            if (NewProfession == 11)
-                            {
-                                if (Skill.Type == 1110 || Skill.Type == 5100 || Skill.Type == 1190 || Skill.Type == 1270 || Skill.Type == 1015 || Skill.Type == 1040 || Skill.Type == 1320)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 21)
-                            {
-                                if (Skill.Type == 1110 || Skill.Type == 1270 || Skill.Type == 1190)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 41 || NewProfession == 142)
-                            {
-                                if (Skill.Type == 1110 || Skill.Type == 1270 || Skill.Type == 1190 || Skill.Type == 1020 || Skill.Type == 1040 || Skill.Type == 5100)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 132)
-                            {
-                                if (Skill.Type == 1110 || Skill.Type == 1270 || Skill.Type == 1190 || Skill.Type == 1020 || Skill.Type == 1040 || Skill.Type == 5100 || Skill.Type == 1025)
-                                    Keep = true;
-                            }
-                        }
-                        else if (SecondProfession == 45)
-                        {
-                            if (NewProfession == 41)
-                            {
-                                if (Skill.Type == 1110 || Skill.Type == 1270 || Skill.Type == 1190 || Skill.Type == 5000)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 21 || NewProfession == 132 || NewProfession == 142 || NewProfession == 11)
-                            {
-                                if (Skill.Type == 1110 || Skill.Type == 1270 || Skill.Type == 1190 || Skill.Type == 5002)
-                                    Keep = true;
-                            }
-                        }
-                        else if (SecondProfession == 135)
-                        {
-                            if (NewProfession == 11)
-                            {
-                                if (Skill.Type == 1270 || Skill.Type == 1005 || Skill.Type == 1085 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 21)
-                            {
-                                if (Skill.Type == 1190 || Skill.Type == 1110 || Skill.Type == 1270 || Skill.Type == 1005 || Skill.Type == 1085 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 41)
-                            {
-                                if (Skill.Type == 1190 || Skill.Type == 1110 || Skill.Type == 1270 || Skill.Type == 1005 || Skill.Type == 1075 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 132)
-                            {
-                                if (Skill.Type == 1190 || Skill.Type == 1110 || Skill.Type == 1270 || Skill.Type == 3090)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 142)
-                            {
-                                if (Skill.Type == 1190 || Skill.Type == 1110 || Skill.Type == 1270 || Skill.Type == 1050 || Skill.Type == 1075 || Skill.Type == 1175 || Skill.Type == 1170)
-                                    Keep = true;
-                            }
-                        }
-                        else if (SecondProfession == 145)
-                        {
-                            if (NewProfession == 11 || NewProfession == 21)
-                            {
-                                if (Skill.Type == 1270 || Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1195)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 41)
-                            {
-                                if (Skill.Type == 1190 || Skill.Type == 1110 || Skill.Type == 1270 || Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1195)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 132)
-                            {
-                                if (Skill.Type == 1190 || Skill.Type == 1110 || Skill.Type == 1270 || Skill.Type == 1120)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 142)
-                            {
-                                if (Skill.Type == 1190 || Skill.Type == 1110 || Skill.Type == 1270 || Skill.Type == 3080)
-                                    Keep = true;
-                            }
-                        }
-                    }
-                    else if (FirstProfession == 25)
-                    {
-                        if (SecondProfession == 15)
-                        {
-                            if (NewProfession == 11)
-                            {
-                                if (Skill.Type == 1320 || Skill.Type == 1040 || Skill.Type == 3050)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 21)
-                            {
-                                if (Skill.Type == 1270 || Skill.Type == 1190 || Skill.Type == 1110)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 41 || NewProfession == 132 || NewProfession == 142)
-                            {
-                                if (Skill.Type == 1270 || Skill.Type == 1190 || Skill.Type == 1110 || Skill.Type == 1040 || Skill.Type == 1320)
-                                    Keep = true;
-                            }
-                            else if (SecondProfession == 25)
-                            {
-                                if (NewProfession == 21)
-                                    Keep = true;
-                                else if (NewProfession == 11)
-                                {
-                                    if (Skill.Type == 1320 || Skill.Type == 1015 || Skill.Type == 1040)
-                                        Keep = true;
-                                }
-                                else if (NewProfession == 41 || NewProfession == 142)
-                                {
-                                    if (Skill.Type == 1020 || Skill.Type == 1040)
-                                        Keep = true;
-                                }
-                                else if (NewProfession == 132)
-                                {
-                                    if (Skill.Type == 1020 || Skill.Type == 1040 || Skill.Type == 1025)
-                                        Keep = true;
-                                }
-                            }
-                            else if (SecondProfession == 45)
-                            {
-                                if (NewProfession == 11)
-                                {
-                                    if (Skill.Type == 1040 || Skill.Type == 5002)
-                                        Keep = true;
-                                }
-                                else if (NewProfession == 21)
-                                {
-                                    if (Skill.Type == 5002)
-                                        Keep = true;
-                                }
-                                else if (NewProfession == 41)
-                                {
-                                    if (Skill.Type == 5000)
-                                        Keep = true;
-                                }
-                                else if (NewProfession == 132 || NewProfession == 142)
-                                {
-                                    if (Skill.Type == 1020 || Skill.Type == 1040 || Skill.Type == 5002)
-                                        Keep = true;
-                                }
-                            }
-                            else if (SecondProfession == 135)
-                            {
-                                if (NewProfession == 11)
-                                {
-                                    if (Skill.Type == 1005 || Skill.Type == 1085 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 1280 || Skill.Type == 1350 || Skill.Type == 1040)
-                                        Keep = true;
-                                }
-                                else if (NewProfession == 21)
-                                {
-                                    if (Skill.Type == 1005 || Skill.Type == 1085 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 1280 || Skill.Type == 1350 || Skill.Type == 1040)
-                                        Keep = true;
-                                }
-                                else if (NewProfession == 41)
-                                {
-                                    if (Skill.Type == 1005 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 1280 || Skill.Type == 1350 || Skill.Type == 1040 || Skill.Type == 1075 || Skill.Type == 1020)
-                                        Keep = true;
-                                }
-                                else if (NewProfession == 132)
-                                {
-                                    if (Skill.Type == 1020 || Skill.Type == 1025 || Skill.Type == 1040 || Skill.Type == 1280 || Skill.Type == 1350 || Skill.Type == 3090)
-                                        Keep = true;
-                                }
-                                else if (NewProfession == 142)
-                                {
-                                    if (Skill.Type == 1020 || Skill.Type == 1280 || Skill.Type == 1350 || Skill.Type == 1040 || Skill.Type == 1050 || Skill.Type == 1055 || Skill.Type == 1175 || Skill.Type == 1075)
-                                        Keep = true;
-                                }
-                            }
-                            else if (SecondProfession == 145)
-                            {
-                                if (NewProfession == 11)
-                                {
-                                    if (Skill.Type == 1005 || Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1195 || Skill.Type == 1040)
-                                        Keep = true;
-                                }
-                                else if (NewProfession == 21)
-                                    if (Skill.Type == 1005 || Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1195)
-                                        Keep = true;
-                            }
-                            else if (NewProfession == 41)
-                            {
-                                if (Skill.Type == 1005 || Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1195 || Skill.Type == 1040 || Skill.Type == 1020)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 142)
-                            {
-                                if (Skill.Type == 1020 || Skill.Type == 1040 || Skill.Type == 3080)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 132)
-                            {
-                                if (Skill.Type == 1020 || Skill.Type == 1040 || Skill.Type == 3090)
-                                    Keep = true;
-                            }
-                        }
-                    }
-                    else if (FirstProfession == 45)
-                    {
-                        if (SecondProfession == 15)
-                        {
-                            if (NewProfession == 11)
-                            {
-                                if (Skill.Type == 3050 || Skill.Type == 5002)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 21 || NewProfession == 41 || NewProfession == 132 || NewProfession == 142)
-                            {
-                                if (Skill.Type == 1110 || Skill.Type == 5002 || Skill.Type == 1190 || Skill.Type == 1270)
-                                    Keep = true;
-                            }
-                        }
-                        else if (SecondProfession == 25)
-                        {
-                            if (NewProfession == 11)
-                            {
-                                if (Skill.Type == 5002 || Skill.Type == 1015 || Skill.Type == 1040 || Skill.Type == 1320)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 21)
-                            {
-                                if (Skill.Type == 5002)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 41 || NewProfession == 132 || NewProfession == 142)
-                            {
-                                if (Skill.Type == 5002 || Skill.Type == 1020 || Skill.Type == 1040)
-                                    Keep = true;
-                            }
-                        }
-                        else if (SecondProfession == 45)
-                        {
-                            if (NewProfession == 41)
-                                Keep = true;
-                            else if (NewProfession == 11 || NewProfession == 21 || NewProfession == 132 || NewProfession == 142)
-                            {
-                                if (Skill.Type == 5002 || Skill.Type == 5000)
-                                    Keep = true;
-                            }
-                        }
-                        else if (SecondProfession == 135)
-                        {
-                            if (NewProfession == 11 || NewProfession == 21)
-                            {
-                                if (Skill.Type == 1085 || Skill.Type == 1005 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 5002 || Skill.Type == 1195 || Skill.Type == 1280 || Skill.Type == 1350)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 41)
-                            {
-                                if (Skill.Type == 1075 || Skill.Type == 1005 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 5002 || Skill.Type == 1195 || Skill.Type == 1280 || Skill.Type == 1350)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 132)
-                            {
-                                if (Skill.Type == 5002 || Skill.Type == 1280 || Skill.Type == 1350 || Skill.Type == 3090)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 142)
-                            {
-                                if (Skill.Type == 5002 || Skill.Type == 1075 || Skill.Type == 1350 || Skill.Type == 3090 || Skill.Type == 1050 || Skill.Type == 1175 || Skill.Type == 1055)
-                                    Keep = true;
-                            }
-                        }
-                        else if (SecondProfession == 145)
-                        {
-                            if (NewProfession == 11 || NewProfession == 21 || NewProfession == 41)
-                            {
-                                if (Skill.Type == 5002 || Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1195)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 132)
-                            {
-                                if (Skill.Type == 5002 || Skill.Type == 1120)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 142)
-                            {
-                                if (Skill.Type == 5002 || Skill.Type == 3080)
-                                    Keep = true;
-                            }
-                        }
-                    }
-                    else if (FirstProfession == 135)
-                    {
-                        if (SecondProfession == 15)
-                        {
-                            if (NewProfession == 11)
-                            {
-                                if (Skill.Type == 1005 || Skill.Type == 1085 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 3050)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 21 || NewProfession == 41 || NewProfession == 132 || NewProfession == 142)
-                            {
-                                if (Skill.Type == 1005 || Skill.Type == 1085 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 1190 || Skill.Type == 1110 || Skill.Type == 1270)
-                                    Keep = true;
-                            }
-                        }
-                        else if (SecondProfession == 25)
-                        {
-                            if (NewProfession == 11)
-                            {
-                                if (Skill.Type == 1005 || Skill.Type == 1085 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 1015 || Skill.Type == 1040 || Skill.Type == 1320)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 21)
-                            {
-                                if (Skill.Type == 1005 || Skill.Type == 1085 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 41 || NewProfession == 142)
-                            {
-                                if (Skill.Type == 1005 || Skill.Type == 1085 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 1040 || Skill.Type == 1020)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 132)
-                            {
-                                if (Skill.Type == 1005 || Skill.Type == 1085 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 1040 || Skill.Type == 1020 || Skill.Type == 1025)
-                                    Keep = true;
-                            }
-                        }
-                        else if (SecondProfession == 45)
-                        {
-                            if (NewProfession == 11 || NewProfession == 21 || NewProfession == 132 || NewProfession == 142)
-                            {
-                                if (Skill.Type == 1005 || Skill.Type == 1065 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 5002)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 41)
-                            {
-                                if (Skill.Type == 1005 || Skill.Type == 1065 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 5002 || Skill.Type == 5000)
-                                    Keep = true;
-                            }
-                            else if (SecondProfession == 135)
-                            {
-                                if (NewProfession == 132)
-                                    Keep = true;
-                                else if (NewProfession == 11 || NewProfession == 21 || NewProfession == 41)
-                                {
-                                    if (Skill.Type == 1005 || Skill.Type == 1085 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 3090)
-                                        Keep = true;
-                                }
-                                else if (NewProfession == 142)
-                                {
-                                    if (Skill.Type == 3090 || Skill.Type == 1050 || Skill.Type == 1055 || Skill.Type == 1175 || Skill.Type == 1075)
-                                        Keep = true;
-                                }
-                            }
-                            else if (SecondProfession == 145)
-                            {
-                                if (NewProfession == 11 || NewProfession == 21 || NewProfession == 41)
-                                {
-                                    if (Skill.Type == 1055 || Skill.Type == 1175 || Skill.Type == 1050 || Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1075 || Skill.Type == 1195)
-                                        Keep = true;
-                                }
-                                else if (NewProfession == 142)
-                                {
-                                    if (Skill.Type == 1050 || Skill.Type == 1055 || Skill.Type == 1175 || Skill.Type == 1075 || Skill.Type == 3080)
-                                        Keep = true;
-                                }
-                                else if (NewProfession == 132)
-                                {
-                                    if (Skill.Type == 1050 || Skill.Type == 1055 || Skill.Type == 1175 || Skill.Type == 1075 || Skill.Type == 1120)
-                                        Keep = true;
-                                }
-                            }
-                        }
-                    }
-                    else if (FirstProfession == 145)
-                    {
-                        if (SecondProfession == 15)
-                        {
-                            if (NewProfession == 11)
-                            {
-                                if (Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1195 || Skill.Type == 3050)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 21 || NewProfession == 51 || NewProfession == 132 || NewProfession == 142)
-                            {
-                                if (Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1195 || Skill.Type == 1110 || Skill.Type == 1190)
-                                    Keep = true;
-                            }
-
-                        }
-                        else if (SecondProfession == 25)
-                        {
-                            if (NewProfession == 11)
-                            {
-                                if (Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1195 || Skill.Type == 1040 || Skill.Type == 1015 || Skill.Type == 1320)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 21)
-                            {
-                                if (Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1195)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 41)
-                            {
-                                if (Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1195 || Skill.Type == 1040 || Skill.Type == 1020)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 132)
-                            {
-                                if (Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1195 || Skill.Type == 1040 || Skill.Type == 1020 || Skill.Type == 1025)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 142)
-                            {
-                                if (Skill.Type == 1020 || Skill.Type == 1040)
-                                    Keep = true;
-                            }
-                        }
-                        else if (SecondProfession == 45)
-                        {
-                            if (NewProfession == 11 || NewProfession == 21 || NewProfession == 132 || NewProfession == 142)
-                            {
-                                if (Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1195 || Skill.Type == 5002)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 41)
-                            {
-                                if (Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1195 || Skill.Type == 5002 || Skill.Type == 5000)
-                                    Keep = true;
-                            }
-                        }
-                        else if (SecondProfession == 135)
-                        {
-                            if (NewProfession == 11 || NewProfession == 21)
-                            {
-                                if (Skill.Type == 1005 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 1095)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 41)
-                            {
-                                if (Skill.Type == 1005 || Skill.Type == 1090 || Skill.Type == 1095 || Skill.Type == 1195 || Skill.Type == 1075)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 142)
-                            {
-                                if (Skill.Type == 1055 || Skill.Type == 1050 || Skill.Type == 1175 || Skill.Type == 1075)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 152)
-                            {
-                                if (Skill.Type == 3090 || Skill.Type == 1120)
-                                    Keep = true;
-                            }
-                        }
-                        else if (SecondProfession == 145)
-                        {
-                            if (NewProfession == 142)
-                                Keep = true;
-                            else if (NewProfession == 11 || NewProfession == 21 || NewProfession == 41)
-                            {
-                                if (Skill.Type == 1000 || Skill.Type == 1001 || Skill.Type == 1005 || Skill.Type == 1195 || Skill.Type == 3080)
-                                    Keep = true;
-                            }
-                            else if (NewProfession == 132)
-                            {
-                                if (Skill.Type == 3080 || Skill.Type == 1120)
-                                    Keep = true;
-                            }
-                        }
-                    }
-
-                    if (Skill.Type == 1000 || Skill.Type == 1005 ||
-                        Skill.Type == 1045 || Skill.Type == 1046 ||
-                        Skill.Type == 1220 || Skill.Type == 1260 || Skill.Type == 1290 || Skill.Type == 5040 || Skill.Type == 5050 || Skill.Type == 5010 || Skill.Type == 5020 || Skill.Type == 5030 || Skill.Type == 7010 || Skill.Type == 7020 ||
-                        Skill.Type == 1350 || Skill.Type == 1360 || Skill.Type == 3321 ||
-                        Skill.Type == 1380 || Skill.Type == 1385 || Skill.Type == 1390 || Skill.Type == 1395 || Skill.Type == 1400 || Skill.Type == 1405 || Skill.Type == 1410 ||
-                        Skill.Type == 4000 || Skill.Type == 4010 || Skill.Type == 4020 || Skill.Type == 4030 || Skill.Type == 4040 || Skill.Type == 4050 || Skill.Type == 4060 || Skill.Type == 4070)
-                        Keep = true;
-
-                    if (Keep)
-                    {
-                        MagicType.Entry Info;
-                        if (Database2.AllMagics.TryGetValue(Skill.Type * 10 + Skill.Level, out Info))
-                        {
-                            Skill.OldLevel = Skill.Level;
-                            if (Skill.Exp >= Info.ExpRequired / 2)
-                                if (Database2.AllMagics.ContainsKey(Skill.Type * 10 + Skill.Level + 1))
-                                    Skill.OldLevel++;
-                        }
-
-                        Skill.Level = 0;
-                        Skill.Exp = 0;
-
-                        Send(MsgMagicInfo.Create(Skill));
-                    }
-                    else
-                        SkillToDel.Add(Skill);
-                }
-
-                Magic[] Skills = SkillToDel.ToArray();
-                for (Int32 i = 0; i < Skills.Length; i++)
-                    DelMagic(Skills[i], true);
-                Skills = null;
-
-                //New Skill(s)
-                if (FirstProfession != 15 && SecondProfession == 15)
-                {
-                    if (NewProfession == 11)
-                        AddMagic(Magic.Create(UniqId, 3050, 0, 0, 0, false), true); //CruelShade
-                    else if (NewProfession == 21)
-                        AddMagic(Magic.Create(UniqId, 5100, 0, 0, 0, false), true); //IronShirt
-                }
-                else if (FirstProfession != 45 && SecondProfession == 45)
-                {
-                    if (NewProfession == 41)
-                        AddMagic(Magic.Create(UniqId, 5000, 0, 0, 0, false), true); //FreezingArrow
-                    else
-                        AddMagic(Magic.Create(UniqId, 5002, 0, 0, 0, false), true); //Poison
-                }
-                else if (FirstProfession != 135 && SecondProfession == 135)
-                {
-                    if (NewProfession == 132)
-                        AddMagic(Magic.Create(UniqId, 3090, 0, 0, 0, false), true); //Pervade
-                }
-                else if (FirstProfession != 145 && SecondProfession == 145)
-                {
-                    if (NewProfession == 142)
-                        AddMagic(Magic.Create(UniqId, 3080, 0, 0, 0, false), true); //Dodge
-                }
-                AddMagic(Magic.Create(UniqId, 9876, 0, 0, 0, false), true); //GodBlessing
-            }
-            else
-            {
-                foreach (Magic Skill in Magics.Values)
-                {
-                    MagicType.Entry Info;
-                    if (Database2.AllMagics.TryGetValue(Skill.Type * 10 + Skill.Level, out Info))
-                    {
-                        Skill.OldLevel = Skill.Level;
-                        if (Skill.Exp >= Info.ExpRequired / 2)
-                            if (Database2.AllMagics.ContainsKey(Skill.Type * 10 + Skill.Level + 1))
-                                Skill.OldLevel++;
-                    }
-
-                    Skill.Level = 0;
-                    Skill.Exp = 0;
-
-                    Send(MsgMagicInfo.Create(Skill));
-                }
-            }
-
-            for (Byte Pos = 1; Pos < 10; Pos++)
-            {
-                if (Pos == 7 || Pos == 9)
-                    continue;
-
-                Item Item = GetItemByPos(Pos);
-                if (Item == null)
-                    continue;
-
-                Int32 NewId = ItemHandler.GetFirstId(Item.Id);
-                if (NewId == Item.Id)
-                    continue;
-
-                Item.Id = NewId;
-                Item.CurDura = (UInt16)((Double)ItemHandler.GetMaxDura(NewId) * (Double)Item.CurDura / (Double)Item.MaxDura);
-                Item.MaxDura = ItemHandler.GetMaxDura(NewId);
-
-                UpdateItem(Item);
-            }
-
-            if (Bless)
-            {
-                List<Byte> ValidPos = new List<Byte>();
-
-                for (Byte Pos = 1; Pos < 10; Pos++)
-                {
-                    Item Item = GetItemByPos(Pos);
-                    if (Item == null)
-                        continue;
-
-                    if (Item.Bless != 0)
-                        continue;
-
-                    ValidPos.Add(Pos);
-                }
-
-                if (ValidPos.Count > 0)
-                {
-                    Byte Pos = ValidPos.ToArray()[MyMath.Generate(0, (ValidPos.Count - 1))];
-                    Item Item = GetItemByPos(Pos);
-
-                    if (Item != null && Item.Bless == 0)
-                    {
-                        Item.Bless = 1;
-                        UpdateItem(Item);
-                    }
-                }
-            }
-
-            MyMath.GetHitPoints(this, true);
-            MyMath.GetMagicPoints(this, true);
-            MyMath.GetPotency(this, true);
-            MyMath.GetEquipStats(this);
-
-            CurHP = MaxHP;
-            CurMP = MaxMP;
-
-            Database.Save(this);
-
-            #region Update Attrib
-            Send(MsgUserAttrib.Create(this, Level, MsgUserAttrib.Type.Level));
-            Send(MsgUserAttrib.Create(this, Profession, MsgUserAttrib.Type.Profession));
-            Send(MsgUserAttrib.Create(this, (Int64)Exp, MsgUserAttrib.Type.Exp));
-            Send(MsgUserAttrib.Create(this, Metempsychosis, MsgUserAttrib.Type.Metempsychosis));
-            Send(MsgUserAttrib.Create(this, CurHP, MsgUserAttrib.Type.Life));
-            Send(MsgUserAttrib.Create(this, CurMP, MsgUserAttrib.Type.Mana));
-            Send(MsgUserAttrib.Create(this, Strength, MsgUserAttrib.Type.Strength));
-            Send(MsgUserAttrib.Create(this, Agility, MsgUserAttrib.Type.Agility));
-            Send(MsgUserAttrib.Create(this, Vitality, MsgUserAttrib.Type.Vitality));
-            Send(MsgUserAttrib.Create(this, Spirit, MsgUserAttrib.Type.Spirit));
-            Send(MsgUserAttrib.Create(this, AddPoints, MsgUserAttrib.Type.AddPoints));
-
-            if (Team != null)
-            {
-                World.BroadcastTeamMsg(Team, MsgUserAttrib.Create(this, CurHP, MsgUserAttrib.Type.Life));
-                World.BroadcastTeamMsg(Team, MsgUserAttrib.Create(this, MaxHP, (MsgUserAttrib.Type.Life + 1)));
-            }
-            #endregion
-
-            #region Flags
-            if (Metempsychosis > 2)
-            {
-                if (Metempsychosis == 3)
-                    AddFlag(Flag.ThirdMetempsychosis);
-                else
-                {
-                    if (Metempsychosis == 4)
-                    {
-                        AddFlag(Flag.FourthMetempsychosis);
-                        DelFlag(Flag.ThirdMetempsychosis);
-                    }
-                    else if (Metempsychosis == 5)
-                    {
-                        AddFlag(Flag.FifthMetempsychosis);
-                        DelFlag(Flag.FourthMetempsychosis);
-                    }
-                    else if (Metempsychosis == 6)
-                    {
-                        AddFlag(Flag.SixthMetempsychosis);
-                        DelFlag(Flag.FifthMetempsychosis);
-                    }
-                    else if (Metempsychosis == 7)
-                    {
-                        AddFlag(Flag.SixthMetempsychosis);
-                        DelFlag(Flag.SeventhMetempsychosis);
-                    }
-                    else if (Metempsychosis == 8)
-                    {
-                        AddFlag(Flag.EighthMetempsychosis);
-                        DelFlag(Flag.SeventhMetempsychosis);
-                    }
-                    else if (Metempsychosis == 9)
-                    {
-                        AddFlag(Flag.NinthMetempsychosis);
-                        DelFlag(Flag.EighthMetempsychosis);
-                    }
-                    else if (Metempsychosis == 10)
-                    {
-                        AddFlag(Flag.TenthMetempsychosis);
-                        DelFlag(Flag.NinthMetempsychosis);
-                    }
-                }
-                World.BroadcastRoomMsg(this, MsgUserAttrib.Create(this, Flags, MsgUserAttrib.Type.Flags), true);
-            }
-            #endregion
-        }
-
-        public void AddTransform(Int16 TransformId) { Look = (UInt32)((TransformId * 10000000L) + (Look % 10000000L)); }
-        public void DelTransform() { Look = Look % 10000000; }
 
         public void Mine()
         {
@@ -1433,7 +1206,7 @@ namespace COServer.Entities
             if (!IsAlive())
             {
                 Mining = false;
-                SendSysMsg(Owner.GetStr("STR_DIE"));
+                SendSysMsg(StrRes.STR_DIE);
                 return;
             }
 
@@ -1441,35 +1214,26 @@ namespace COServer.Entities
             if (Item == null)
             {
                 Mining = false;
-                SendSysMsg(Owner.GetStr("STR_MINE_WITH_PECKER"));
+                SendSysMsg(StrRes.STR_MINE_WITH_PECKER);
                 return;
             }
 
-            if (Item.Id / 1000 != 562)
+            if (Item.Type / 1000 != 562)
             {
                 Mining = false;
-                SendSysMsg(Owner.GetStr("STR_MINE_WITH_PECKER"));
+                SendSysMsg(StrRes.STR_MINE_WITH_PECKER);
                 return;
             }
 
-            World.BroadcastRoomMsg(this, MsgAction.Create(this, 0, MsgAction.Action.Mine), true);
+            World.BroadcastRoomMsg(this, new MsgAction(this, 0, MsgAction.Action.Mine), true);
 
             Double Bonus = 1.00;
-            if (WeaponSkills.ContainsKey(562))
-                Bonus += (Double)WeaponSkills[562].Level / 100.00;
+            if (mWeaponSkills.ContainsKey(562))
+                Bonus += (Double)mWeaponSkills[562].Level / 100.00;
 
             Int32 ItemId = 0;
             if (MyMath.Success(30 * Bonus))
             {
-                //1023 CrystalMine-1 1023 10242 10 0 0 1000 4294967295
-                //1024 CrystalMine-2 1024 10242 10 0 0 1000 4294967295
-                //1025 CopperMine 1025 10242 10 0 0 1011 4294967295
-                //1026 SilverMine 1026 10242 10 0 0 1020 4294967295
-                //1027 GoldMine 1027 10242 10 0 0 1000 4294967295
-                //1028 MineCave 1028 10242 10 0 0 1002 4294967295
-                //1218 Adventure-8.1 1025 2114 10 1003 1278 1219 4294967295
-                //6000 BlackJail 6000 10594 0 29 72 6000 4294967295
-
                 //Iron
                 ItemId = 1072010 + MyMath.Generate(0, 3);
                 if (MyMath.Success(25 * Bonus))
@@ -1482,7 +1246,7 @@ namespace COServer.Entities
                 }
 
                 //Copper
-                if (MyMath.Success(75.0 * Bonus) && Map != 1028)
+                if (MyMath.Success(75.0 * Bonus) && Map.Id != 1028)
                 {
                     ItemId = 1072020 + MyMath.Generate(0, 3);
                     if (MyMath.Success(25 * Bonus))
@@ -1496,7 +1260,7 @@ namespace COServer.Entities
                 }
 
                 //Silver
-                if (MyMath.Success(35.0 * Bonus) && (Map == 1026 || Map == 1027))
+                if (MyMath.Success(35.0 * Bonus) && (Map.Id == 1026 || Map.Id == 1027))
                 {
                     ItemId = 1072040 + MyMath.Generate(0, 3);
                     if (MyMath.Success(25 * Bonus))
@@ -1510,7 +1274,7 @@ namespace COServer.Entities
                 }
 
                 //Gold
-                if (MyMath.Success(5.0 * Bonus) && Map != 1027 || MyMath.Success(25.0 * Bonus))
+                if (MyMath.Success(5.0 * Bonus) && Map.Id != 1027 || MyMath.Success(25.0 * Bonus))
                 {
                     ItemId = 1072050 + MyMath.Generate(0, 3);
                     if (MyMath.Success(25 * Bonus))
@@ -1523,14 +1287,8 @@ namespace COServer.Entities
                     }
                 }
 
-                if (MyMath.Success(7.5 * Bonus) && Map == 1028)
+                if (MyMath.Success(7.5 * Bonus) && Map.Id == 1028)
                     ItemId = 1072031; //Euxite
-
-                if (MyMath.Success(1.0 * Bonus) && Map == 1023)
-                    ItemId = 1088003; //Citrine
-
-                if (MyMath.Success(1.0 * Bonus) && Map == 1024)
-                    ItemId = 1088004; //TigerEye
 
                 if (MyMath.Success(1.5 * Bonus))
                 {
@@ -1538,17 +1296,17 @@ namespace COServer.Entities
                     while (true)
                     {
                         Byte GemType = (Byte)MyMath.Generate(0, 7);
-                        if (Map == 1028 && !(GemType == 0 || GemType == 1 || GemType == 2 || GemType == 7))
+                        if (Map.Id == 1028 && !(GemType == 0 || GemType == 1 || GemType == 2 || GemType == 7))
                             continue;
-                        else if (Map == 1025 && !(GemType == 0 || GemType == 1 || GemType == 3 || GemType == 4))
+                        else if (Map.Id == 1025 && !(GemType == 0 || GemType == 1 || GemType == 3 || GemType == 4))
                             continue;
-                        else if (Map == 1026 && !(GemType == 5 || GemType == 6))
+                        else if (Map.Id == 1026 && !(GemType == 5 || GemType == 6))
                             continue;
-                        else if (Map == 1027 && !(GemType == 5 || GemType == 6))
+                        else if (Map.Id == 1027 && !(GemType == 5 || GemType == 6))
                             continue;
-                        else if (Map == 1218 && !(GemType == 0 || GemType == 1 || GemType == 3 || GemType == 4))
+                        else if (Map.Id == 1218 && !(GemType == 0 || GemType == 1 || GemType == 3 || GemType == 4))
                             continue;
-                        else if (Map == 6000 && !(GemType == 0 || GemType == 1 || GemType == 3 || GemType == 4))
+                        else if (Map.Id == 6000 && !(GemType == 0 || GemType == 1 || GemType == 3 || GemType == 4))
                             continue;
                         ItemId += (GemType * 10);
                         break;
@@ -1561,24 +1319,7 @@ namespace COServer.Entities
             }
 
             if (ItemId != 0 && ItemInInventory() < 40)
-            {
-                if (!AutoMine)
-                    AddItem(Item.Create(0, 0, ItemId, 0, 0, 0, 0, 0, 2, 0, ItemHandler.GetMaxDura(ItemId), ItemHandler.GetMaxDura(ItemId)), true);
-                else
-                {
-                    if (ItemId / 100000 == 7 || ItemId == 1088003 || ItemId == 1088003)
-                        AddItem(Item.Create(0, 0, ItemId, 0, 0, 0, 0, 0, 2, 0, ItemHandler.GetMaxDura(ItemId), ItemHandler.GetMaxDura(ItemId)), true);
-                    else
-                    {
-                        ItemType.Entry Info;
-                        if (Database2.AllItems.TryGetValue(ItemId, out Info))
-                        {
-                            Money += (Int32)Info.Price / 3;
-                            Send(MsgUserAttrib.Create(this, Money, MsgUserAttrib.Type.Money));
-                        }
-                    }
-                }
-            }
+                AddItem(Item.Create(0, 0, ItemId, 0, 0, 0, 0, 0, 2, 0, ItemHandler.GetMaxDura(ItemId), ItemHandler.GetMaxDura(ItemId)), true);
         }
 
         public Boolean Reflect()
@@ -1606,10 +1347,10 @@ namespace COServer.Entities
                 if (Item == null)
                     return false;
 
-                if (Item.Id % 10 != 9)
+                if (Item.Type % 10 != 9)
                     return false;
 
-                if (i == 4 && ((Byte)(Item.Id / 100000) == 5 || (Int16)(Item.Id / 1000) == 421))
+                if (i == 4 && ((Byte)(Item.Type / 100000) == 5 || (Int16)(Item.Type / 1000) == 421))
                     TwoHandsWeapon = true;
             }
             return true;
@@ -1620,7 +1361,7 @@ namespace COServer.Entities
             Item Item = GetItemByPos(3);
             if (Item == null)
                 return 0;
-            return Item.Id;
+            return Item.Type;
         }
 
         public Int32 GetHeadTypeID()
@@ -1628,7 +1369,7 @@ namespace COServer.Entities
             Item Item = GetItemByPos(1);
             if (Item == null)
                 return 0;
-            return Item.Id;
+            return Item.Type;
         }
 
         public Int32 GetRightHandTypeID()
@@ -1636,7 +1377,7 @@ namespace COServer.Entities
             Item Item = GetItemByPos(4);
             if (Item == null)
                 return 0;
-            return Item.Id;
+            return Item.Type;
         }
 
         public Int32 GetLeftHandTypeID()
@@ -1644,15 +1385,7 @@ namespace COServer.Entities
             Item Item = GetItemByPos(5);
             if (Item == null)
                 return 0;
-            return Item.Id;
-        }
-
-        public Int32 GetGarmentTypeID()
-        {
-            Item Item = GetItemByPos(9);
-            if (Item == null)
-                return 0;
-            return Item.Id;
+            return Item.Type;
         }
 
         public Item GetItemByPos(Byte Position)
@@ -1674,7 +1407,7 @@ namespace COServer.Entities
             {
                 foreach (Item Item in Items.Values)
                 {
-                    if (Item.Position == 0 && Item.Id == Id)
+                    if (Item.Position == 0 && Item.Type == Id)
                         return Item;
                 }
             }
@@ -1695,7 +1428,7 @@ namespace COServer.Entities
             {
                 foreach (Item Item in Items.Values)
                 {
-                    if (Item.Id == Id && Item.Position == 0)
+                    if (Item.Type == Id && Item.Position == 0)
                         ICount++;
                 }
             }
@@ -1746,46 +1479,37 @@ namespace COServer.Entities
 
         public void AddItem(Item Item, Boolean Send)
         {
-            if (Items.ContainsKey(Item.UniqId))
+            if (Items.ContainsKey(Item.Id))
                 return;
 
             Item.OwnerUID = UniqId;
             Item.Position = 0;
 
-            lock (Items) { Items.Add(Item.UniqId, Item); }
+            lock (Items) { Items.Add(Item.Id, Item); }
             if (Send)
-                this.Send(MsgItemInfo.Create(Item, MsgItemInfo.Action.AddItem));
+                this.Send(new MsgItemInfo(Item, MsgItemInfo.Action.AddItem));
         }
 
         public void UpdateItem(Item Item)
         {
-            if (!Items.ContainsKey(Item.UniqId))
+            if (!Items.ContainsKey(Item.Id))
                 return;
 
-            Send(MsgItemInfo.Create(Item, MsgItemInfo.Action.Update));
-            World.BroadcastRoomMsg(this, MsgItemInfoEx.Create(UniqId, Item, 0, MsgItemInfoEx.Action.Equipment), false);
-        }
-
-        public void UpdateItem(Int32 UniqId)
-        {
-            if (!Items.ContainsKey(UniqId))
-                return;
-
-            Send(MsgItemInfo.Create(Items[UniqId], MsgItemInfo.Action.Update));
-            World.BroadcastRoomMsg(this, MsgItemInfoEx.Create(UniqId, Items[UniqId], 0, MsgItemInfoEx.Action.Equipment), false);
+            Send(new MsgItemInfo(Item, MsgItemInfo.Action.Update));
+            World.BroadcastRoomMsg(this, new MsgItemInfoEx(UniqId, Item, 0, MsgItemInfoEx.Action.Equipment), false);
         }
 
         public void DelItem(Item Item, Boolean Send)
         {
-            if (!Items.ContainsKey(Item.UniqId))
+            if (!Items.ContainsKey(Item.Id))
                 return;
 
             Item.OwnerUID = 0;
 
             if (Send)
-                this.Send(MsgItem.Create(Item.UniqId, Item.Position, MsgItem.Action.Drop)); //?
+                this.Send(new MsgItem(Item.Id, Item.Position, MsgItem.Action.Drop)); //?
 
-            lock (Items) { Items.Remove(Item.UniqId); }
+            lock (Items) { Items.Remove(Item.Id); }
         }
 
         public void DelItem(Int32 UniqId, Boolean Send)
@@ -1797,7 +1521,7 @@ namespace COServer.Entities
             Item.OwnerUID = 0;
 
             if (Send)
-                this.Send(MsgItem.Create(UniqId, Item.Position, MsgItem.Action.Drop)); //?
+                this.Send(new MsgItem(UniqId, Item.Position, MsgItem.Action.Drop)); //?
 
             lock (Items) { Items.Remove(UniqId); }
         }
@@ -1815,13 +1539,13 @@ namespace COServer.Entities
                     if (Count == ICount)
                         break;
 
-                    if (Array[i].Id == Id && Array[i].Position == 0)
+                    if (Array[i].Type == Id && Array[i].Position == 0)
                     {
                         Array[i].OwnerUID = 0;
 
                         if (Send)
-                            this.Send(MsgItem.Create(Array[i].UniqId, 0, MsgItem.Action.Drop));
-                        Items.Remove(Array[i].UniqId);
+                            this.Send(new MsgItem(Array[i].Id, 0, MsgItem.Action.Drop));
+                        Items.Remove(Array[i].Id);
                         ICount++;
                     }
                 }
@@ -1830,349 +1554,633 @@ namespace COServer.Entities
             }
         }
 
-        public WeaponSkill GetWeaponSkillByType(Int16 Type)
+        public WeaponSkill GetWeaponSkillByType(UInt16 aType)
         {
-            lock (WeaponSkills)
+            lock (mWeaponSkills)
             {
-                foreach (WeaponSkill WeaponSkill in WeaponSkills.Values)
+                foreach (WeaponSkill skill in mWeaponSkills.Values)
                 {
-                    if (WeaponSkill.Type == Type)
-                        return WeaponSkill;
+                    if (skill.Type == aType)
+                        return skill;
                 }
             }
+
             return null;
         }
 
-        public void AddWeaponSkill(WeaponSkill WeaponSkill, Boolean Send)
+        /// <summary>
+        /// Award a weapon skill to the player.
+        /// </summary>
+        /// <param name="aSkill">The awarded skill.</param>
+        /// <param name="aSend">Whether or not the client must be updated.</param>
+        public void AwardSkill(WeaponSkill aSkill, Boolean aSend)
         {
-            if (WeaponSkills.ContainsKey(WeaponSkill.UniqId))
+            if (aSkill.Player.UniqId != UniqId)
                 return;
 
-            WeaponSkill.OwnerUID = UniqId;
-
-            lock (WeaponSkills) { WeaponSkills.Add(WeaponSkill.UniqId, WeaponSkill); }
-            if (Send)
-                this.Send(MsgWeaponSkill.Create(WeaponSkill));
-        }
-
-        public void UpdateWeaponSkill(WeaponSkill WeaponSkill)
-        {
-            if (!WeaponSkills.ContainsKey(WeaponSkill.UniqId))
+            if (mWeaponSkills.ContainsKey(aSkill.Id))
                 return;
 
-            Send(MsgFlushExp.Create(WeaponSkill));
+            lock (mWeaponSkills) { mWeaponSkills.Add(aSkill.Id, aSkill); }
+
+            if (aSend)
+                Send(new MsgWeaponSkill(aSkill));
         }
 
-        public void UpdateWeaponSkill(Int32 UniqId)
+        /// <summary>
+        /// Drop a weapon skill.
+        /// </summary>
+        /// <param name="aSkill">The skill to drop.</param>
+        /// <param name="aSend">Whether or not the client must be updated.</param>
+        public void DropSkill(WeaponSkill aSkill, Boolean aSend)
         {
-            if (!WeaponSkills.ContainsKey(UniqId))
+            if (!mWeaponSkills.ContainsKey(aSkill.Id))
                 return;
 
-            Send(MsgFlushExp.Create(WeaponSkills[UniqId]));
-        }
-
-        public void DelWeaponSkill(WeaponSkill WeaponSkill, Boolean Send)
-        {
-            if (!WeaponSkills.ContainsKey(WeaponSkill.UniqId))
-                return;
-
-            WeaponSkill.OwnerUID = 0;
-
-            if (Send)
-                this.Send(MsgAction.Create(this, WeaponSkill.Type, MsgAction.Action.DropSkill));
-
-            lock (WeaponSkills) { WeaponSkills.Remove(WeaponSkill.UniqId); }
-        }
-
-        public void DelWeaponSkill(Int32 UniqId, Boolean Send)
-        {
-            if (!WeaponSkills.ContainsKey(UniqId))
-                return;
-
-            WeaponSkill WeaponSkill = WeaponSkills[UniqId];
-            WeaponSkill.OwnerUID = 0;
-
-            if (Send)
-                this.Send(MsgAction.Create(this, WeaponSkill.Type, MsgAction.Action.DropSkill));
-
-            lock (WeaponSkills) { WeaponSkills.Remove(UniqId); }
-        }
-
-        public void CheckWeaponSkills()
-        {
-            Dictionary<Int16, Int32> List = new Dictionary<Int16, Int32>();
-            List<Int32> ToDelete = new List<Int32>();
-
-            lock (WeaponSkills)
+            if (Database.Delete(aSkill))
             {
-                foreach (WeaponSkill WeaponSkill in WeaponSkills.Values)
+                lock (mWeaponSkills) { mWeaponSkills.Remove(aSkill.Id); }
+
+                if (aSend)
+                    Send(new MsgAction(this, aSkill.Type, MsgAction.Action.DropSkill));
+            }
+        }
+
+        /// <summary>
+        /// Send the weapon skills information.
+        /// </summary>
+        public void SendWeaponSkillSet()
+        {
+            lock (mWeaponSkills)
+            {
+                foreach (var skill in mWeaponSkills.Values)
                 {
-                    if (List.ContainsKey(WeaponSkill.Type))
+                    if (!skill.Unlearn)
+                        Send(new MsgWeaponSkill(skill));
+                }
+            }
+        }
+
+        public Magic GetMagicByType(UInt16 aType)
+        {
+            lock (mMagics)
+            {
+                foreach (Magic magic in mMagics.Values)
+                {
+                    if (magic.Type == aType)
+                        return magic;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Award a magic skill to the player.
+        /// </summary>
+        /// <param name="aMagic">The awarded magic skill.</param>
+        /// <param name="aSend">Whether or not the client must be updated.</param>
+        public void AwardMagic(Magic aMagic, Boolean aSend)
+        {
+            if (aMagic.Player.UniqId != UniqId)
+                return;
+
+            if (mMagics.ContainsKey(aMagic.Id))
+                return;
+
+            lock (mMagics) { mMagics.Add(aMagic.Id, aMagic); }
+
+            if (aSend)
+                Send(new MsgMagicInfo(aMagic));
+        }
+
+        /// <summary>
+        /// Drop a magic skill.
+        /// </summary>
+        /// <param name="aMagic">The magic skill to drop.</param>
+        /// <param name="aSend">Whether or not the client must be updated.</param>
+        public void DropMagic(Magic aMagic, Boolean aSend)
+        {
+            if (!mMagics.ContainsKey(aMagic.Id))
+                return;
+
+            if (Database.Delete(aMagic))
+            {
+                lock (mMagics) { mMagics.Remove(aMagic.Id); }
+
+                if (aSend)
+                    Send(new MsgAction(this, aMagic.Type, MsgAction.Action.DropMagic));
+            }
+        }
+
+        /// <summary>
+        /// Send the magic skills information.
+        /// </summary>
+        public void SendMagicSkillSet()
+        {
+            lock (mMagics)
+            {
+                foreach (var magic in mMagics.Values)
+                {
+                    if (!magic.Unlearn)
+                        Send(new MsgMagicInfo(magic));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Disconnect the client.
+        /// </summary>
+        public void Disconnect() { Client.Disconnect(); }
+
+        /// <summary>
+        /// Send the message to the client.
+        /// </summary>
+        /// <param name="aMsg">The message to send to the client.</param>
+        public override void Send(Msg aMsg) { Client.Send(aMsg); }
+
+        /// <summary>
+        /// Process the MsgTick data.
+        /// </summary>
+        /// <param name="aClientTime">The client time.</param>
+        /// <param name="aMsgCount">The client's message count.</param>
+        public void ProcessTick(Int32 aClientTime, UInt32 aMsgCount)
+        {
+            if (mMsgCount == 0)
+            {
+                mMsgCount = aMsgCount;
+            }
+
+            if (mMsgCount > aMsgCount || mMsgCount + 16 < aMsgCount) // cheater found !
+            {
+                Program.Log("[CHEAT] Msg counter of {0} (uid={1}) is too off. (Should be around {2}, got {3}).",
+                    Name, UniqId, mMsgCount, aMsgCount);
+
+                Disconnect(); // disconnect the client...
+                return;
+            }
+
+            if (mFirstClientTick == 0)
+            {
+                mFirstClientTick = aClientTime;
+            }
+
+            if (aClientTime < mLastClientTick) // ridiculous timestamp
+            {
+                SendSysMsg(StrRes.STR_CONNECTION_OFF);
+
+                Disconnect(); // disconnect the client...
+                return;
+            }
+
+            const int CRITICAL_TICK = 500; // 500 ms
+
+            int nServerTicks = mServerTicks.Count;
+            if (mLastClientTick != 0 && nServerTicks >= 2 &&
+                aClientTime > mLastClientTick + 10000 + CRITICAL_TICK)
+            {
+                // suspicious timestamp
+                var serverTime = DateTime.Now;
+                var serverTickInterval = (mServerTicks.First.Next.Value - mServerTicks.First.Value).TotalMilliseconds;
+
+                var echoTime = (serverTime - mServerTicks.First.Next.Value).TotalMilliseconds;
+                if (echoTime < aClientTime - mLastClientTick - serverTickInterval)
+                {
+                    Program.Log("[CHEAT] {0} (uid={1}) has a suspicious timestamp.",
+                        Name, UniqId);
+                    SendSysMsg(StrRes.STR_CONNECTION_OFF);
+
+                    Disconnect(); // disconnect the client...
+                    return;
+                }
+            }
+
+            if (mServerTicks.Count >= 2)
+                mServerTicks.RemoveLast();
+
+            mMsgCount = aMsgCount;
+            mLastClientTick = aClientTime;
+            mLastRcvClientTick = DateTime.Now;
+        }
+
+
+        /// <summary>
+        /// Called when the timer elapse.
+        /// </summary>
+        public override void TimerElapsed(Object aSender, ElapsedEventArgs Args)
+        {
+            DateTime now = DateTime.Now;
+
+            //Reset speedhack check each 3 mins
+            if (Environment.TickCount - PrevSpeedHackReset > 180000)
+            {
+                PrevSpeedHackReset = Environment.TickCount;
+                SpeedHack = 0;
+            }
+
+            if (SpeedHack >= 15)
+            {
+                SpeedHack = 0;
+                if (Database.SendPlayerToJail(Name))
+                    Program.Log("[CRIME] {0} has been sent to jail for using a speed hack!", Name);
+            }
+
+            if (Environment.TickCount - LastSave > 20000)
+            {
+                Database.Save(this, true);
+                LastSave = Environment.TickCount;
+            }
+
+            //////////////////////////////////////////////////////////////
+            ///  MsgTick : Ping / Pong
+            //////////////////////////////////////////////////////////////
+            if (mFirstServerTick == DateTime.MinValue) // run only once per user
+            {
+                mFirstServerTick = now;
+                mLastRcvClientTick = now;
+
+                mLastServerTick = now;
+                mServerTicks.AddLast(now);
+
+                Send(new MsgTick(this));
+            }
+            else
+            {
+                if (now >= mLastServerTick.AddSeconds(10)) // each 10s
+                {
+                    mLastServerTick = now;
+                    mServerTicks.AddLast(now);
+
+                    Send(new MsgTick(this));
+                }
+            }
+
+            if (mLastRcvClientTick != DateTime.MinValue)
+            {
+                if ((now - mLastRcvClientTick).TotalSeconds >= 25) // no feedback after 25s...
+                {
+                    // reject
+                    Disconnect();
+                }
+            }
+
+            //////////////////////////////////////////////////////////////
+            ///  Clear statuses
+            //////////////////////////////////////////////////////////////
+            List<Status> statuses;
+            lock (mStatuses)
+                statuses = new List<Status>(mStatuses.Keys);
+
+            StatusEffect effect;
+            foreach (Status status in statuses)
+            {
+                if (GetStatus(status, out effect))
+                {
+                    if (effect.IsElapsed())
                     {
-                        WeaponSkill WeaponSkill2 = WeaponSkills[List[WeaponSkill.Type]];
-                        if (WeaponSkill2.Level == WeaponSkill.Level)
+                        DetachStatus(status);
+
+                        if (status == Status.SuperAtk || status == Status.SuperSpeed)
                         {
-                            if (WeaponSkill.Exp >= WeaponSkill2.Exp)
-                                ToDelete.Add(WeaponSkill2.UniqId);
-                            else
-                                ToDelete.Add(WeaponSkill.UniqId);
-                        }
-                        else
-                        {
-                            if (WeaponSkill.Level > WeaponSkill2.Level)
-                                ToDelete.Add(WeaponSkill2.UniqId);
-                            else
-                                ToDelete.Add(WeaponSkill.UniqId);
+                            if (CurKO > KO)
+                            {
+                                KO = CurKO;
+                                if (CurKO > 15000)
+                                    TimeAdd = 3;
+                                else if (CurKO > 10000)
+                                    TimeAdd = 2;
+                                else if (CurKO > 5000)
+                                    TimeAdd = 1;
+                                Send(new MsgUserAttrib(this, TimeAdd, MsgUserAttrib.AttributeType.TimeAdd));
+                            }
+                            if (CurKO > 1000)
+                                World.BroadcastMsg(new MsgTalk("SYSTEM", "ALLUSERS", Name + " a tué " + CurKO + " monstres en KO!", Channel.Talk, Color.White));
+                            CurKO = 0;
                         }
                     }
-                    else
-                        List.Add(WeaponSkill.Type, WeaponSkill.UniqId);
                 }
             }
 
-            foreach (Int32 UniqId in ToDelete)
-                DelWeaponSkill(UniqId, true);
+            MyMath.GetEquipStats(this); // TODO remove this
 
-            if (ToDelete.Count > 0)
-                Disconnect();
-        }
 
-        public Magic GetMagicByType(Int16 Type)
-        {
-            lock (Magics)
+            if (IsInBattle && Environment.TickCount - LastAttackTick >= AtkSpeed)
             {
-                foreach (Magic Magic in Magics.Values)
+                if (Entity.IsPlayer(TargetUID))
                 {
-                    if (Magic.Type == Type)
-                        return Magic;
+                    Player Target = null;
+                    if (World.AllPlayers.TryGetValue(TargetUID, out Target))
+                    {
+                        if (MagicType != 0)
+                            Battle.UseMagic(this, Target, Target.X, Target.Y);
+                        else
+                            Battle.PvP(this, Target);
+                    }
+                    else
+                        IsInBattle = false;
+                }
+                else if (Entity.IsMonster(TargetUID))
+                {
+                    Monster Target = null;
+                    if (World.AllMonsters.TryGetValue(TargetUID, out Target))
+                    {
+                        if (MagicType != 0)
+                            Battle.UseMagic(this, Target, Target.X, Target.Y);
+                        else
+                            Battle.PvM(this, Target);
+                    }
+                    else
+                        IsInBattle = false;
+                }
+                else if (Entity.IsTerrainNPC(TargetUID))
+                {
+                    TerrainNPC Target = null;
+                    if (World.AllTerrainNPCs.TryGetValue(TargetUID, out Target))
+                    {
+                        if (MagicType != 0)
+                            Battle.UseMagic(this, Target, Target.X, Target.Y);
+                        else
+                            Battle.PvE(this, Target);
+                    }
+                    else
+                        IsInBattle = false;
+                }
+                else if (TargetUID == 0)
+                {
+                    if (MagicType != 0)
+                        Battle.UseMagic(this, null, X, Y);
+                }
+                else
+                    IsInBattle = false;
+            }
+
+            if (PkPoints > 0 && Environment.TickCount - LastPkPointRemove > 120000)
+            {
+                LastPkPointRemove = Environment.TickCount;
+                if (PkPoints == 100)
+                {
+                    DetachStatus(Status.BlackName);
+                    AttachStatus(Status.RedName);
+                }
+                else if (PkPoints == 30)
+                {
+                    DetachStatus(Status.RedName);
+                }
+                PkPoints--;
+                Send(new MsgUserAttrib(this, PkPoints, MsgUserAttrib.AttributeType.PkPoints));
+            }
+
+            if (DblExpEndTime != 0)
+            {
+                if (Environment.TickCount >= DblExpEndTime)
+                {
+                    DblExpEndTime = 0;
+                    Send(new MsgUserAttrib(this, DblExpEndTime, MsgUserAttrib.AttributeType.DblExpTime));
                 }
             }
-            return null;
+
+            #region LuckyTime
+            if (LuckyTime != 0 && !(Praying || CastingPray))
+            {
+                LuckyTime -= 500;
+                if (LuckyTime <= 0)
+                    LuckyTime = 0;
+                Send(new MsgUserAttrib(this, LuckyTime, MsgUserAttrib.AttributeType.LuckyTime));
+            }
+
+            if (CastingPray)
+            {
+                if (X != PrayX || Y != PrayY || Map.Id != PrayMap || IsInBattle)
+                {
+                    CastingPray = false;
+                    PrayX = 0;
+                    PrayY = 0;
+
+                    DetachStatus(Status.CastingPray);
+
+                    List<Player> Casters = new List<Player>();
+                    List<Player> Prayers = new List<Player>();
+                    foreach (Entity Entity in Map.Entities.Values)
+                    {
+                        if (!Entity.IsPlayer())
+                            continue;
+
+                        Player Player2 = Entity as Player;
+                        if (Player2.CastingPray)
+                            Casters.Add(Player2);
+
+                        if (Player2.Praying)
+                            Prayers.Add(Player2);
+                    }
+
+                    foreach (Player Prayer in Prayers)
+                    {
+                        Boolean Stop = true;
+                        foreach (Player Caster in Casters)
+                        {
+                            if (MyMath.CanSee(Prayer.X, Prayer.Y, Caster.PrayX, Caster.PrayY, 4))
+                            {
+                                Stop = false;
+                                break;
+                            }
+                        }
+
+                        if (Stop)
+                        {
+                            Prayer.Praying = false;
+                            Prayer.DetachStatus(Status.Praying);
+                        }
+                    }
+                }
+                else
+                {
+
+                    LuckyTime += 1500;
+                    if (LuckyTime > Player.MAX_LUCKY_TIME)
+                        LuckyTime = Player.MAX_LUCKY_TIME;
+                }
+            }
+
+            if (Praying)
+            {
+                if (X != PrayX || Y != PrayY || Map.Id != PrayMap || IsInBattle)
+                {
+                    Praying = false;
+                    PrayMap = 0;
+                    PrayX = 0;
+                    PrayY = 0;
+
+                    DetachStatus(Status.Praying);
+                }
+
+                LuckyTime += 500;
+                if (LuckyTime > Player.MAX_LUCKY_TIME)
+                    LuckyTime = Player.MAX_LUCKY_TIME;
+            }
+            else
+            {
+                List<Player> Casters = new List<Player>();
+                foreach (Entity Entity in Screen.mEntities.Values)
+                {
+                    if (!Entity.IsPlayer())
+                        continue;
+
+                    Player Caster = Entity as Player;
+                    if (Caster.CastingPray)
+                        Casters.Add(Caster);
+                }
+
+                foreach (Player Caster in Casters)
+                {
+                    if (MyMath.CanSee(X, Y, Caster.PrayX, Caster.PrayY, 4))
+                    {
+                        Praying = true;
+                        PrayMap = Map.Id;
+                        PrayX = X;
+                        PrayY = Y;
+
+                        AttachStatus(Status.Praying);
+                        break;
+                    }
+                    break;
+                }
+            }
+            #endregion
+
+            if (Team != null && Team.Leader.UniqId == UniqId)
+            {
+                if (Environment.TickCount - LastLeaderPosTick > 5000)
+                {
+                    Team.LeaderPosition();
+                    LastLeaderPosTick = Environment.TickCount;
+                }
+            }
+
+            if (IsAlive())
+            {
+                const Byte maxEnergy = 100;
+
+                if (CurHP > UInt16.MaxValue)
+                    Die(null);
+
+                if (Action == Emotion.SitDown && !IsFlying())
+                {
+                    if (Energy < maxEnergy)
+                    {
+                        Energy += 8;
+                        if (Energy > maxEnergy)
+                            Energy = maxEnergy;
+                        Send(new MsgUserAttrib(this, Energy, MsgUserAttrib.AttributeType.Energy));
+                    }
+                }
+                if (Action == Emotion.StandBy && !IsFlying())
+                {
+                    if (Energy < maxEnergy)
+                    {
+                        Energy++;
+                        if (Energy > maxEnergy)
+                            Energy = maxEnergy;
+                        Send(new MsgUserAttrib(this, Energy, MsgUserAttrib.AttributeType.Energy));
+                    }
+                }
+
+                if ((HasStatus(Status.XpFull) && Environment.TickCount - LastXPAdd > 20000)
+                    || (!HasStatus(Status.XpFull) && Environment.TickCount - LastXPAdd > 3000))
+                {
+                    ++XP;
+                    if (XP == 100)
+                    {
+                        AttachStatus(Status.XpFull);
+                    }
+                    if (XP > 100)
+                    {
+                        XP = 0;
+                        DetachStatus(Status.XpFull);
+                    }
+                    if (XP % 20 == 0)
+                        Send(new MsgUserAttrib(this, XP, MsgUserAttrib.AttributeType.XP));
+                    LastXPAdd = Environment.TickCount;
+                }
+
+                if (TransformEndTime != 0)
+                {
+                    if (Environment.TickCount >= TransformEndTime)
+                    {
+                        TransformEndTime = 0;
+                        // TODO re-enable transformation skills
+                        //DelTransform();
+
+                        if (CurHP >= MaxHP)
+                            CurHP = MaxHP;
+                        Double Multiplier = (Double)CurHP / (Double)MaxHP;
+                        CalcMaxHP();
+                        CurHP = (Int32)(MaxHP * Multiplier);
+
+                        CalcMaxMP();
+                        MyMath.GetEquipStats(this);
+
+                        Send(new MsgUserAttrib(this, CurHP, MsgUserAttrib.AttributeType.Life));
+                        Send(new MsgUserAttrib(this, MaxHP, (MsgUserAttrib.AttributeType.Life + 1)));
+                        if (Team != null)
+                        {
+                            Team.BroadcastMsg(new MsgUserAttrib(this, CurHP, MsgUserAttrib.AttributeType.Life));
+                            Team.BroadcastMsg(new MsgUserAttrib(this, MaxHP, (MsgUserAttrib.AttributeType.Life + 1)));
+                        }
+                    }
+                }
+
+                if (Mining && Environment.TickCount - LastPickSwingTick > 3000)
+                    Mine();
+            }
         }
 
-        public void AddMagic(Magic Magic, Boolean Send)
+        public void SendSysMsg(String Message) { Send(new MsgTalk("SYSTEM", "ALLUSERS", Message, Channel.System, Color.Red)); }
+        public void SendSysMsg(String aFmt, params object[] aArgs) { Send(new MsgTalk("SYSTEM", "ALLUSERS", String.Format(aFmt, aArgs), Channel.System, Color.Red)); }
+        public void KickBack() { Send(new MsgAction(this, Map.DocId, MsgAction.Action.EnterMap)); }
+
+        public void Move(UInt32 aMapId, UInt16 aX, UInt16 aY)
         {
-            if (Magics.ContainsKey(Magic.UniqId))
+            GameMap newMap;
+            if (!MapManager.TryGetMap(aMapId, out newMap))
                 return;
 
-            Magic.OwnerUID = UniqId;
-
-            lock (Magics) { Magics.Add(Magic.UniqId, Magic); }
-            if (Send)
-                this.Send(MsgMagicInfo.Create(Magic));
-        }
-
-        public void UpdateMagic(Magic Magic)
-        {
-            if (!Magics.ContainsKey(Magic.UniqId))
-                return;
-
-            Send(MsgFlushExp.Create(Magic));
-        }
-
-        public void UpdateMagic(Int32 UniqId)
-        {
-            if (!Magics.ContainsKey(UniqId))
-                return;
-
-            Send(MsgFlushExp.Create(Magics[UniqId]));
-        }
-
-        public void DelMagic(Magic Magic, Boolean Send)
-        {
-            if (!Magics.ContainsKey(Magic.UniqId))
-                return;
-
-            Magic.OwnerUID = 0;
-
-            if (Send)
-                this.Send(MsgAction.Create(this, Magic.Type, MsgAction.Action.DropMagic));
-
-            lock (Magics) { Magics.Remove(Magic.UniqId); }
-        }
-
-        public void DelMagic(Int32 UniqId, Boolean Send)
-        {
-            if (!Magics.ContainsKey(UniqId))
-                return;
-
-            Magic Magic = Magics[UniqId];
-            Magic.OwnerUID = 0;
-
-            if (Send)
-                this.Send(MsgAction.Create(this, Magic.Type, MsgAction.Action.DropMagic));
-
-            lock (Magics) { Magics.Remove(UniqId); }
-        }
-
-        public void Disconnect() { Owner.Disconnect(); }
-        public void Send(Byte[] Buffer) { Owner.Send(Buffer); }
-        public void SendSysMsg(String Message) { Send(MsgTalk.Create("SYSTEM", "ALLUSERS", Message, MsgTalk.Channel.System, 0xFF0000)); }
-        public void KickBack() { Send(MsgAction.Create(this, World.AllMaps[Map].Id, MsgAction.Action.EnterMap)); }
-
-        public void SendEquipStats()
-        { 
-            Send(MsgTalk.Create("SYSTEM", "ALLUSERS",
-                "MinAtk: " + MinAtk +
-                " MaxAtk:" + MaxAtk +
-                " Def:" + Defence +
-                " MAtk:" + MagicAtk +
-                " MDef:" + (MagicDef + MagicBlock) +
-                " Dext:" + Dexterity +
-                " Dodge:" + Dodge +
-                " Weight:" + Weight +
-                " Range:" + AtkRange +
-                " Speed:" + AtkSpeed +
-                " Potency:" + Potency
-                , MsgTalk.Channel.GM, 0x00FF00));
-        }
-
-        public void Move(Int16 NewMap, UInt16 NewX, UInt16 NewY)
-        {
-            if (!World.AllMaps.ContainsKey(NewMap))
-                return;
-
-            Action = (Int16)MsgAction.Emotion.StandBy;
+            Action = Emotion.StandBy;
 
             IsInBattle = false;
             MagicIntone = false;
             Mining = false;
 
-            World.AllMaps[Map].DelEntity(this);
-
-            PrevMap = Map;
-            PrevX = X;
-            PrevY = Y;
-
-            Map = NewMap;
-            X = NewX;
-            Y = NewY;
-
-            World.AllMaps[Map].AddEntity(this);
-
-            Send(MsgAction.Create(this, World.AllMaps[NewMap].Id, MsgAction.Action.EnterMap));
-            Send(MsgAction.Create(this, (Int32)World.AllMaps[NewMap].Color, MsgAction.Action.MapARGB));
-            Send(MsgMapInfo.Create(World.AllMaps[NewMap]));
-            if (World.AllMaps[NewMap].Weather != 0)
-                Send(MsgWeather.Create(World.AllMaps[NewMap]));
-
-            if (PrevMap == 601 && BlessEndTime != 0)
+            // Pet
+            if (Pet != null)
             {
-                Send(MsgUserAttrib.Create(this, 2, MsgUserAttrib.Type.TrainingPoints));
-                LastTrainingPointAdd = Environment.TickCount;
+                Pet.Brain.Sleep();
+                Pet.Disappear();
+                Pet = null;
             }
 
-            if (Map == 601 && BlessEndTime != 0)
-            {
-                Send(MsgUserAttrib.Create(this, 1, MsgUserAttrib.Type.TrainingPoints));
-                LastTrainingPointAdd = Environment.TickCount;
-            }
-        }
+            Map.DelEntity(this);
 
-        public void DropMoney()
-        {
-            Int32 Silvers = Money / 10;
-            if (Silvers < 0)
-                Silvers = 0;
+            // TODO re-enable prev map in Move() ?
+            //PrevMap = Map;
+            //PrevX = X;
+            //PrevY = Y;
 
-            Silvers = MyMath.Generate(0, Silvers);
+            Map = newMap;
+            X = aX;
+            Y = aY;
 
-            Item Item = null;
-            if (Silvers <= 10) //Silver
-                Item = Item.Create(0, 254, 1090000, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-            else if (Silvers <= 100) //Sycee
-                Item = Item.Create(0, 254, 1090010, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-            else if (Silvers <= 1000) //Gold
-                Item = Item.Create(0, 254, 1090020, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-            else if (Silvers <= 2000) //GoldBullion
-                Item = Item.Create(0, 254, 1091000, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-            else if (Silvers <= 5000) //GoldBar
-                Item = Item.Create(0, 254, 1091010, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-            else if (Silvers > 5000) //GoldBars
-                Item = Item.Create(0, 254, 1091020, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-            else //Error
-                Item = Item.Create(0, 254, 1090000, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            Map.AddEntity(this);
 
-            UInt16 ItemX = (UInt16)(X + MyMath.Generate(-1, 1));
-            UInt16 ItemY = (UInt16)(Y + MyMath.Generate(-1, 1));
-
-            if (!World.AllMaps[Map].IsValidPoint(ItemX, ItemY))
-                return;
-
-            FloorItem FloorItem = new FloorItem(Item, Silvers, 0, Map, ItemX, ItemY);
-            World.FloorThread.AddToQueue(FloorItem);
-
-            Money -= Silvers;
-            Send(MsgUserAttrib.Create(this, Money, MsgUserAttrib.Type.Money));
-        }
-
-        public void DropInventory()
-        {
-            Int32 Count = (Int32)((Double)ItemInInventory() * 0.20);
-            if (Count > ItemInInventory())
-                Count = ItemInInventory();
-
-            for (SByte i = 0; i < Count; i++)
-            {
-                Item[] TmpArray = new Item[Items.Count];
-                Items.Values.CopyTo(TmpArray, 0);
-
-                do
-                {
-                    Int32 Pos = MyMath.Generate(0, TmpArray.Length - 1);
-                    Item Item = TmpArray[Pos];
-
-                    if (Item.Position != 0)
-                        continue;
-
-                    UInt16 ItemX = (UInt16)(X + MyMath.Generate(-1, 1));
-                    UInt16 ItemY = (UInt16)(Y + MyMath.Generate(-1, 1));
-
-                    if (!World.AllMaps[Map].IsValidPoint(ItemX, ItemY))
-                        break;
-
-                    DelItem(Item, true);
-                    FloorItem FloorItem = new FloorItem(Item, 0, 0, Map, ItemX, ItemY);
-                    World.FloorThread.AddToQueue(FloorItem);
-                    break;
-                }
-                while (true);
-                TmpArray = null;
-            }
-        }
-
-        public void DropEquipment()
-        {
-            Int32 Count = MyMath.Generate(0, 3);
-            for (SByte i = 0; i < Count; i++)
-            {
-                if (MyMath.Success(50))
-                {
-                    Item Item = GetItemByPos((Byte)MyMath.Generate(0, 8));
-                    if (Item == null)
-                        return;
-
-                    UInt16 ItemX = (UInt16)(X + MyMath.Generate(-1, 1));
-                    UInt16 ItemY = (UInt16)(Y + MyMath.Generate(-1, 1));
-
-                    if (!World.AllMaps[Map].IsValidPoint(ItemX, ItemY))
-                        return;
-
-                    Send(MsgItem.Create(Item.UniqId, Item.Position, MsgItem.Action.Unequip));
-                    DelItem(Item, true);
-
-                    FloorItem FloorItem = new FloorItem(Item, 0, 0, Map, ItemX, ItemY);
-                    World.FloorThread.AddToQueue(FloorItem);
-                }
-            }
+            Send(new MsgAction(this, Map.DocId, MsgAction.Action.EnterMap));
+            Send(new MsgAction(this, (Int32)Map.Light, MsgAction.Action.MapARGB));
+            Send(new MsgMapInfo(Map));
+            if (Map.Weather != 0)
+                Send(new MsgWeather(Map));
         }
 
         public void RemoveAtkDura()
         {
-            GemEffect();
-
-            if (AutoKill)
-                return;
+            SendGemEffect();
 
             for (Byte Pos = 4; Pos < 7; Pos++)
             {
@@ -2183,62 +2191,26 @@ namespace COServer.Entities
                 if (Item.CurDura == 0)
                     continue;
 
-                if (!MyMath.Success(25) && Item.Id / 10000 != 105) //!Arrow
+                if (!MyMath.Success(25) && Item.Type / 10000 != 105) //!Arrow
                     continue;
 
                 Item.CurDura--;
                 if (Item.CurDura == 0)
                     MyMath.GetEquipStats(this);
-                Send(MsgItem.Create(Item.UniqId, Item.CurDura, MsgItem.Action.SynchroAmount));
+                Send(new MsgItem(Item.Id, Item.CurDura, MsgItem.Action.SynchroAmount));
 
                 if (Item.CurDura == 0)
-                    Send(MsgItemInfo.Create(Item, MsgItemInfo.Action.Update));
+                    Send(new MsgItemInfo(Item, MsgItemInfo.Action.Update));
 
-                if (Item.Id / 10000 == 105 && Item.CurDura == 0)
+                if (Item.Type / 10000 == 105 && Item.CurDura == 0)
                 {
                     IsInBattle = false;
 
                     Item Bow = GetItemByPos(4);
-                    Send(MsgItem.Create(Item.UniqId, Item.Position, MsgItem.Action.Unequip));
-                    Send(MsgItem.Create(Bow.UniqId, Bow.Position, MsgItem.Action.Unequip));
-                    Send(MsgItem.Create(Bow.UniqId, Bow.Position, MsgItem.Action.Equip));
+                    Send(new MsgItem(Item.Id, Item.Position, MsgItem.Action.Unequip));
+                    Send(new MsgItem(Bow.Id, Bow.Position, MsgItem.Action.Unequip));
+                    Send(new MsgItem(Bow.Id, Bow.Position, MsgItem.Action.Equip));
                     DelItem(Item, true);
-
-                    if (Owner.AccLvl > 0) //VIP 1
-                    {
-                        lock (Items)
-                        {
-                            foreach (Item Arrow in Items.Values)
-                            {
-                                if (Arrow.Id / 10000 == 105)
-                                {
-                                    Int32 Lvl = Arrow.Id % 10;
-                                    if (Lvl == 1 && Level < 15)
-                                        continue;
-                                    else if (Lvl == 2 && Level < 40)
-                                        continue;
-                                    else if (Lvl == 3 && Level < 70)
-                                        continue;
-                                    else if (Lvl == 4 && Level < 100)
-                                        continue;
-                                    else if (Lvl == 5 && Level < 110)
-                                        continue;
-                                    else if (Lvl == 6 && Level < 120)
-                                        continue;
-                                    else if (Lvl == 7 && Level < 130)
-                                        continue;
-                                    else if (Lvl == 8 && Level < 140)
-                                        continue;
-
-                                    Arrow.Position = 5;
-                                    Send(MsgItem.Create(Arrow.UniqId, Arrow.Position, MsgItem.Action.Equip));
-
-                                    MyMath.GetEquipStats(this);
-                                    break;
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -2264,119 +2236,257 @@ namespace COServer.Entities
                 Item.CurDura--;
                 if (Item.CurDura == 0)
                     MyMath.GetEquipStats(this);
-                Send(MsgItem.Create(Item.UniqId, Item.CurDura, MsgItem.Action.SynchroAmount));
+                Send(new MsgItem(Item.Id, Item.CurDura, MsgItem.Action.SynchroAmount));
             }
         }
 
-        private void GemEffect()
+//        public bool DecEquipmentDurability(bool aIsAttacked, bool aMagic, int bDurValue/*=1*/)
+//{
+//    int nInc = -1 * bDurValue;
+//    for(int i = ITEMPOSITION_EQUIPBEGIN; i < ITEMPOSITION_EQUIPEND; i++)
+//    {
+//        if (!bMagic)
+//        {
+//            if (i == ITEMPOSITION_RINGR || 
+//                    i == ITEMPOSITION_RINGL ||
+//                        i == ITEMPOSITION_SHOES ||
+//                            i == ITEMPOSITION_WEAPONR ||
+//                                i == ITEMPOSITION_WEAPONL)
+//            {
+//                if(!bBeAttack)
+//                    AddEquipmentDurability(i, nInc);
+//            }
+//            else
+//            {
+//                if(bBeAttack)
+//                    AddEquipmentDurability(i, nInc);
+//            }
+//        }
+//        else
+//        {
+//            if (i == ITEMPOSITION_RINGR || 
+//                    i == ITEMPOSITION_RINGL ||
+//                        i == ITEMPOSITION_SHOES ||
+//                            i == ITEMPOSITION_WEAPONR ||
+//                                i == ITEMPOSITION_WEAPONL)
+//            {
+//                if(!bBeAttack)
+//                    AddEquipmentDurability(i, -5);
+//            }
+//            else
+//            {
+//                if(bBeAttack)
+//                    AddEquipmentDurability(i, nInc);
+//            }
+//        }
+//    }
+//    return true;
+//}
+
+        public double Attack(AdvancedEntity aTarget)
         {
-            if (MyMath.Success(15))
-            {
-                String Effect = "";
-                for (Byte Pos = 0; Pos < 9; Pos++)
-                {
-                    Item Item = GetItemByPos(Pos);
-                    if (Item == null)
-                        continue;
+    //CHECKF(pTarget);
 
-                    if (Item.Gem1 % 10 != 3 && Item.Gem2 % 10 != 3)
-                        continue;
+    //CNpc* pNpc;
+    //pTarget->QueryObj(OBJ_NPC, IPP_OF(pNpc));
 
-                    if (Item.Gem1 == 3 || Item.Gem2 == 3)
-                        if (MyMath.Success(10))
-                        {
-                            Effect = "phoenix";
-                            break;
-                        }
-                    if (Item.Gem1 == 13 || Item.Gem2 == 13)
-                        if (MyMath.Success(10))
-                        {
-                            Effect = "goldendragon";
-                            break;
-                        }
-                    if (Item.Gem1 == 23 || Item.Gem2 == 23)
-                        if (MyMath.Success(10))
-                        {
-                            Effect = "fastflash";
-                            break;
-                        }
-                    if (Item.Gem1 == 33 || Item.Gem2 == 33)
-                        if (MyMath.Success(10))
-                        {
-                            Effect = "rainbow";
-                            break;
-                        }
-                    if (Item.Gem1 == 43 || Item.Gem2 == 43)
-                        if (MyMath.Success(10))
-                        {
-                            Effect = "goldenkylin";
-                            break;
-                        }
-                    if (Item.Gem1 == 53 || Item.Gem2 == 53)
-                        if (MyMath.Success(10))
-                        {
-                            Effect = "purpleray";
-                            break;
-                        }
-                    if (Item.Gem1 == 63 || Item.Gem2 == 73)
-                        if (MyMath.Success(10))
-                        {
-                            Effect = "moon";
-                            break;
-                        }
-                    if (Item.Gem1 == 73 || Item.Gem2 == 73)
-                        if (MyMath.Success(10))
-                        {
-                            Effect = "recovery";
-                            break;
-                        }
-                }
-                if (Effect != "")
-                    World.BroadcastRoomMsg(this, MsgName.Create(UniqId, Effect, MsgName.Action.RoleEffect), true);
-            }
+    //int nAtk=0;
+    //int nDamage = CBattleSystem::CalcPower(IsSimpleMagicAtk(), QueryRole(), pTarget, &nAtk, true);
+
+    //// Ä¿±ê»¤¶Ü×´Ì¬×ªÒÆÉËº¦
+    //if (nDamage>0 && pTarget->TransferShield(IsSimpleMagicAtk(), QueryRole(), nDamage))
+    //{
+    //}
+    //else
+    //{
+    //    int nLoseLife = ::CutOverflow(nDamage, (int)pTarget->GetLife());
+    //    if (nLoseLife > 0)
+    //        pTarget->AddAttrib(_USERATTRIB_LIFE, -1*nLoseLife, SYNCHRO_TRUE);
+
+    //    // adjust synflag damage
+    //    if(pNpc && pNpc->IsSynFlag() && pNpc->IsSynMoneyEmpty())
+    //    {
+    //        nDamage	*= SYNWAR_NOMONEY_DAMAGETIMES;
+    //    } 
+
+    //    if (nDamage > 0)
+    //    {
+    //        if (::RandGet(10) == 7)
+    //            this->SendGemEffect();
+    //    }
+		
+    //    pTarget->BeAttack(IsSimpleMagicAtk(), QueryRole(), nDamage);
+    //}		
+
+    //CGameMap* pMap = this->GetMap();
+    //if (pMap)
+    //{
+    //    // crime
+    //    if (!pTarget->IsEvil()				// Ö»ÓÐpk°×Ãû²ÅÉÁÀ¶
+    //            && !pMap->IsDeadIsland())	// ËÀÍöµºÉ±ÈË²»ÉÁÀ¶
+    //    {
+    //        if (!QueryStatus(STATUS_CRIME))
+    //            this->SetCrimeStatus();
+    //    }
+
+    //    // equipment durability cost
+    //    if (!pMap->IsTrainMap())
+    //        this->DecEquipmentDurability(ATTACK_TIME, IsSimpleMagicAtk(), (nDamage < nAtk/10) ? 10 : 1);
+    //}
+
+    //IStatus* pStatus = QueryStatus(STATUS_DMG2LIFE);
+    //if (pStatus)
+    //{
+    //    int nLifeGot = ::CutTrail(0, MulDiv(nDamage, pStatus->GetPower(), 100));
+    //    if (nLifeGot > 0)
+    //        this->AddAttrib(_USERATTRIB_LIFE, nLifeGot, SYNCHRO_TRUE);
+    //}
+
+    //return nDamage;
+            return 0;
         }
+
+
+//        bool CUser::BeAttack(bool bMagic, IRole* pTarget, int nPower, bool bReflectEnable/*=true*/)
+//{
+//    CHECKF(pTarget);
+
+//    QueryStatusSet()->DelObj(STATUS_LURKER);
+//    CRole::DetachStatus(this->QueryRole(), STATUS_FREEZE);
+//    StopMine();
+
+//    // reflect, only use for weapon attack!!!
+//    IStatus* pStatus = QueryStatus(bMagic?STATUS_REFLECTMAGIC:STATUS_REFLECT);
+//    if(nPower>0 && pStatus && bReflectEnable)
+//    {
+//        int nPower2 = AdjustData(nPower, pStatus->GetPower());
+//        if(nPower2 > 0)
+//        {
+//            int nLoseLife = ::CutOverflow((int)pTarget->GetLife(), nPower2);
+//            pTarget->AddAttrib(_USERATTRIB_LIFE, -1*nLoseLife, SYNCHRO_TRUE);
+//            pTarget->BeAttack(bMagic, this, nPower2, false);
+
+//            // ´«ËÍ½á¹ûÏûÏ¢
+//            CMsgInteract msg;
+//            if (msg.Create(bMagic?INTERACT_REFLECTMAGIC:INTERACT_REFLECTWEAPON, GetID(), pTarget->GetID(), GetPosX(), GetPosY(), nPower2))
+//                BroadcastRoomMsg(&msg, INCLUDE_SELF);
+
+//            // kill?
+//            if (!pTarget->IsAlive())
+//                pTarget->BeKill();
+//        }
+//    }
+
+//    // equipment durability cost
+//    if (!this->GetMap()->IsTrainMap())
+//    {
+//        this->DecEquipmentDurability(BEATTACK_TIME, bMagic, (nPower > this->GetMaxLife()/4) ? 10 : 1);
+//    }
+
+//    // self_defence     // add huang 2004.1.14
+////	if(QueryStatus(STATUS_SELFDEFENCE))
+////		this->SetSelfDefStatus();
+	
+//    if(nPower > 0)
+//        BroadcastTeamLife();
+
+//    // abort magic
+//    if (QueryMagic() && QueryMagic()->IsIntone())
+//        QueryMagic()->AbortMagic(true);
+
+//    /*/ stamina lost
+//    if (_ACTION_SITDOWN ==  this->GetPose())
+//    {
+//        this->SetPose(_ACTION_STANDBY);
+//        this->SetAttrib(_USERATTRIB_ENERGY, this->GetEnergy()/2, SYNCHRO_TRUE);
+//    }*/
+
+//    return true;
+//}
+
+        private static readonly Dictionary<GemType, String> GEM_EFFECTS = new Dictionary<GemType, String>()
+        {
+            { GemType.MAtkHgt, "phoenix" },
+            { GemType.DmgHgt, "goldendragon" },
+            { GemType.HitHgt, "fastflash" },
+            { GemType.ExpHgt, "rainbow" },
+            { GemType.DurHgt, "goldenkylin" },
+            { GemType.WpnExpHgt, "purpleray" },
+            { GemType.MgcExpHgt, "moon" },
+            { (GemType)73, "recovery" } // TODO constant
+        };
+
+        /// <summary>
+        /// Send the effect of the gem to all players in screen.
+        /// </summary>
+        private void SendGemEffect()
+        {
+            List<GemType> gems = new List<GemType>();
+
+            lock (Items)
+            {
+                foreach (Item item in Items.Values)
+                {
+                    if (item.Position > 0 && item.Position < 10)
+                    {
+                        if ((GemType)item.FirstGem != GemType.None && (GemType)item.FirstGem != GemType.Hole)
+                            gems.Add((GemType)item.FirstGem);
+
+                        if ((GemType)item.SecondGem != GemType.None && (GemType)item.SecondGem != GemType.Hole)
+                            gems.Add((GemType)item.SecondGem);
+                    }
+                }
+            }
+
+            if (gems.Count <= 0)
+                return;
+
+            GemType type = gems[MyMath.Generate(0, gems.Count - 1)];
+            if (!GEM_EFFECTS.ContainsKey(type))
+                return;
+
+            String effect = GEM_EFFECTS[type];
+
+            if (effect != "")
+                World.BroadcastRoomMsg(this, new MsgName(UniqId, effect, MsgName.NameAct.RoleEffect), true);
+        }
+
+        private static readonly Dictionary<Byte, String> BLESS_EFFECTS = new Dictionary<Byte, String>()
+        {
+            { 1, "Aegis1" },
+            { 3, "Aegis2" },
+            { 5, "Aegis5" },
+            { 7, "Aegis7" }
+        };
 
         private void BlessEffect()
         {
-            if (MyMath.Success(15))
+            if (MyMath.Success(10))
             {
-                String Effect = "";
-                for (Byte Pos = 0; Pos < 9; Pos++)
+                List<String> effects = new List<String>();
+                for (Byte pos = 0; pos < 9; pos++)
                 {
-                    Item Item = GetItemByPos(Pos);
-                    if (Item == null)
+                    Item item = GetItemByPos(pos);
+                    if (item == null)
                         continue;
 
-                    if (Item.Bless == 0)
+                    if (item.Bless == 0)
                         continue;
 
-                    if (Item.Bless == 1)
-                        if (MyMath.Success(15))
-                        {
-                            Effect = "Aegis1";
-                            break;
-                        }
-                    if (Item.Bless > 1 && Item.Bless <= 3)
-                        if (MyMath.Success(15))
-                        {
-                            Effect = "Aegis2";
-                            break;
-                        }
-                    if (Item.Bless > 3 && Item.Bless <= 5)
-                        if (MyMath.Success(15))
-                        {
-                            Effect = "Aegis3";
-                            break;
-                        }
-                    if (Item.Bless > 5)
-                        if (MyMath.Success(15))
-                        {
-                            Effect = "Aegis4";
-                            break;
-                        }
+                    String itemEffect = null;
+
+                    BLESS_EFFECTS.TryGetValue(item.Bless, out itemEffect);
+
+                    if (itemEffect != null && !effects.Contains(itemEffect))
+                        effects.Add(itemEffect);
                 }
-                if (Effect != "")
-                    World.BroadcastRoomMsg(this, MsgName.Create(UniqId, Effect, MsgName.Action.RoleEffect), true);
+
+                String effect = "";
+                if (effects.Count > 0)
+                    effect = effects[MyMath.Generate(0, effects.Count - 1)];
+
+                if (effect != "")
+                    World.BroadcastRoomMsg(this, new MsgName(UniqId, effect, MsgName.NameAct.RoleEffect), true);
             }
         }
     }

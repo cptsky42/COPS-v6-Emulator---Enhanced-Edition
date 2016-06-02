@@ -1,93 +1,267 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using COServer.Entities;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgUserInfo : Msg
+    /// <summary>
+    /// Message sent to the client by the MsgServer to fill all the player variables.
+    /// </summary>
+    public class MsgUserInfo : Msg
     {
-        public const Int16 Id = _MSG_USERINFO;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_USERINFO; } }
 
-        public struct MsgInfo
+        //--------------- Internal Members ---------------
+        private Int32 __UniqId = 0;
+        private UInt32 __Look = 0;
+        private UInt16 __Hair = 0;
+        private Byte __Length = 0;
+        private Byte __Fat = 0;
+        private UInt32 __Money = 0;
+        private UInt32 __Exp = 0;
+        private Byte[] __Unknown = new Byte[12];
+        private UInt16 __Force = 0;
+        private UInt16 __Dexterity = 0;
+        private UInt16 __Health = 0;
+        private UInt16 __Soul = 0;
+        private UInt16 __AddPoints = 0;
+        private UInt16 __CurHP = 0;
+        private UInt16 __CurMP = 0;
+        private Int16 __PkPoints = 0;
+        private Byte __Level = 0;
+        private Byte __Profession = 0;
+        private Boolean __AutoAllot = true;
+        private Byte __Metempsychosis = 0;
+        private Boolean __ShowName = false;
+        private StringPacker __StrPacker = null;
+        //------------------------------------------------
+
+        /// <summary>
+        /// Unique Id of the player.
+        /// </summary>
+        public Int32 UniqId
         {
-            public MsgHeader Header;
-            public Int32 UniqId;
-            public Int32 Look;
-            public Int16 Hair;
-            public Int32 Money;
-            public Int32 CPs;
-            public UInt64 Exp;
-            public UInt64 Unknow1;
-            public UInt64 Unknow2;
-            public UInt16 Strength;
-            public UInt16 Agility;
-            public UInt16 Vitality;
-            public UInt16 Spirit;
-            public UInt16 AddPoints;
-            public UInt16 CurHP;
-            public UInt16 CurMP;
-            public Int16 PkPoints;
-            public Byte Level;
-            public Byte Profession;
-            public Byte AutoAllot;
-            public Byte Metempsychosis;
-            public Byte ShowName;
-            public Byte StringCount;
-            public String Name;
-            public String Spouse;
-        };
+            get { return __UniqId; }
+            set { __UniqId = value; WriteInt32(4, value); }
+        }
 
-        public static Byte[] Create(Player User)
+        /// <summary>
+        /// Look of the player.
+        /// </summary>
+        public UInt32 Look
         {
-            try
-            {
-                if (User.Name == null || User.Name.Length > _MAX_NAMESIZE)
-                    return null;
+            get { return __Look; }
+            set { __Look = value; WriteUInt32(8, value); }
+        }
 
-                if (User.Spouse == null || User.Spouse.Length > _MAX_NAMESIZE)
-                    return null;
+        /// <summary>
+        /// Hair style of the player.
+        /// </summary>
+        public UInt16 Hair
+        {
+            get { return __Hair; }
+            set { __Hair = value; WriteUInt16(12, value); }
+        }
 
-                Byte[] Out = new Byte[70 + User.Name.Length + User.Spouse.Length];
-                fixed (Byte* p = Out)
-                {
-                    *((Int16*)(p + 0)) = (Int16)Out.Length;
-                    *((Int16*)(p + 2)) = (Int16)Id;
-                    *((Int32*)(p + 4)) = (Int32)User.UniqId;
-                    *((Int32*)(p + 8)) = (Int32)User.Look;
-                    *((Int16*)(p + 12)) = (Int16)User.Hair;
-                    *((Int32*)(p + 14)) = (Int32)User.Money;
-                    *((Int32*)(p + 18)) = (Int32)User.CPs;
-                    *((UInt64*)(p + 22)) = (UInt64)User.Exp;
-                    *((UInt64*)(p + 30)) = (UInt64)0x00;
-                    *((UInt64*)(p + 38)) = (UInt64)0x00;
-                    *((UInt16*)(p + 46)) = (UInt16)User.Strength;
-                    *((UInt16*)(p + 48)) = (UInt16)User.Agility;
-                    *((UInt16*)(p + 50)) = (UInt16)User.Vitality;
-                    *((UInt16*)(p + 52)) = (UInt16)User.Spirit;
-                    *((UInt16*)(p + 54)) = (UInt16)User.AddPoints;
-                    *((UInt16*)(p + 56)) = (UInt16)User.CurHP;
-                    *((UInt16*)(p + 58)) = (UInt16)User.CurMP;
-                    *((Int16*)(p + 60)) = (Int16)User.PkPoints;
-                    *((Byte*)(p + 62)) = (Byte)User.Level;
-                    *((Byte*)(p + 63)) = (Byte)User.Profession;
-                    *((Byte*)(p + 64)) = (Byte)(User.AutoAllot ? 1 : 0);
-                    *((Byte*)(p + 65)) = (Byte)User.Metempsychosis;
-                    *((Byte*)(p + 66)) = (Byte)0x01; //Show Name
-                    *((Byte*)(p + 67)) = (Byte)0x02; //String Count
-                    *((Byte*)(p + 68)) = (Byte)User.Name.Length;
-                    for (Byte i = 0; i < User.Name.Length; i++)
-                        *((Byte*)(p + 69 + i)) = (Byte)User.Name[i];
-                    *((Byte*)(p + 69 + (Byte)User.Name.Length)) = (Byte)User.Spouse.Length;
-                    for (Byte i = 0; i < User.Spouse.Length; i++)
-                        *((Byte*)(p + 70 + (Byte)User.Name.Length + i)) = (Byte)User.Spouse[i];
-                }
-                return Out;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+        /// <summary>
+        /// Money of the player.
+        /// </summary>
+        public UInt32 Money
+        {
+            get { return __Money; }
+            set { __Money = value; WriteUInt32(16, value); }
+        }
+
+        /// <summary>
+        /// Experience of the player.
+        /// </summary>
+        public UInt32 Exp
+        {
+            get { return __Exp; }
+            set { __Exp = value; WriteUInt32(20, value); }
+        }
+
+        /// <summary>
+        /// Force of the player.
+        /// </summary>
+        public UInt16 Force
+        {
+            get { return __Force; }
+            set { __Force = value; WriteUInt16(40, value); }
+        }
+
+        /// <summary>
+        /// Dexterity of the player.
+        /// </summary>
+        public UInt16 Dexterity
+        {
+            get { return __Dexterity; }
+            set { __Dexterity = value; WriteUInt16(42, value); }
+        }
+
+        /// <summary>
+        /// Health of the player.
+        /// </summary>
+        public UInt16 Health
+        {
+            get { return __Health; }
+            set { __Health = value; WriteUInt16(44, value); }
+        }
+
+        /// <summary>
+        /// Soul of the player.
+        /// </summary>
+        public UInt16 Soul
+        {
+            get { return __Soul; }
+            set { __Soul = value; WriteUInt16(46, value); }
+        }
+
+        /// <summary>
+        /// Additional points of the player.
+        /// </summary>
+        public UInt16 AddPoints
+        {
+            get { return __AddPoints; }
+            set { __AddPoints = value; WriteUInt16(48, value); }
+        }
+
+        /// <summary>
+        /// Hit points of the player.
+        /// </summary>
+        public UInt16 CurHP
+        {
+            get { return __CurHP; }
+            set { __CurHP = value; WriteUInt16(50, value); }
+        }
+
+        /// <summary>
+        /// Mana points of the player.
+        /// </summary>
+        public UInt16 CurMP
+        {
+            get { return __CurMP; }
+            set { __CurMP = value; WriteUInt16(52, value); }
+        }
+
+        /// <summary>
+        /// Pk points of the player.
+        /// </summary>
+        public Int16 PkPoints
+        {
+            get { return __PkPoints; }
+            set { __PkPoints = value; WriteInt16(54, value); }
+        }
+
+        /// <summary>
+        /// Level of the player.
+        /// </summary>
+        public Byte Level
+        {
+            get { return __Level; }
+            set { __Level = value; mBuf[56] = value; }
+        }
+
+        /// <summary>
+        /// Profession of the player.
+        /// </summary>
+        public Byte Profession
+        {
+            get { return __Profession; }
+            set { __Profession = value; mBuf[57] = value; }
+        }
+
+        /// <summary>
+        /// If the server handle the allot points.
+        /// </summary>
+        public Boolean AutoAllot
+        {
+            get { return __AutoAllot; }
+            set { __AutoAllot = value; mBuf[58] = value ? (byte)1 : (byte)0; }
+        }
+
+        /// <summary>
+        /// Metempsychosis of the player.
+        /// </summary>
+        public Byte Metempsychosis
+        {
+            get { return __Metempsychosis; }
+            set { __Metempsychosis = value; mBuf[59] = value; }
+        }
+
+        /// <summary>
+        /// If the client must show the name of the player.
+        /// </summary>
+        public Boolean ShowName
+        {
+            get { return __ShowName; }
+            set { __ShowName = value; mBuf[60] = value ? (byte)1 : (byte)0; }
+        }
+
+        /// <summary>
+        /// Name of the player.
+        /// </summary>
+        public String Name
+        {
+            get { String name = ""; __StrPacker.GetString(out name, 0); return name; }
+            set { __StrPacker.AddString(value); }
+        }
+
+        /// <summary>
+        /// Mate of the player.
+        /// </summary>
+        public String Mate
+        {
+            get { String mate = ""; __StrPacker.GetString(out mate, 1); return mate; }
+            set { __StrPacker.AddString(value); }
+        }
+
+        /// <summary>
+        /// Create a new message for the specified player.
+        /// </summary>
+        /// <param name="aPlayer">The player.</param>
+        public MsgUserInfo(Player aPlayer)
+            : base((UInt16)(64 + aPlayer.Name.Length + aPlayer.Mate.Length))
+        {
+            UniqId = aPlayer.UniqId;
+            Look = aPlayer.Look;
+            Hair = aPlayer.Hair;
+            // Length -> unused
+            // Fat -> unused
+            Money = aPlayer.Money;
+            Exp = aPlayer.Exp;
+            // 12 unknown bytes
+            Force = aPlayer.Strength;
+            Dexterity = aPlayer.Agility;
+            Health = aPlayer.Vitality;
+            Soul = aPlayer.Spirit;
+            AddPoints = aPlayer.AddPoints;
+            CurHP = (UInt16)aPlayer.CurHP;
+            CurMP = aPlayer.CurMP;
+            PkPoints = aPlayer.PkPoints;
+            Level = (Byte)aPlayer.Level;
+            Profession = aPlayer.Profession;
+            AutoAllot = aPlayer.AutoAllot;
+            Metempsychosis = aPlayer.Metempsychosis;
+            ShowName = true;
+
+            __StrPacker = new StringPacker(this, 61);
+            __StrPacker.AddString(aPlayer.Name);
+            __StrPacker.AddString(aPlayer.Mate);
         }
     }
 }

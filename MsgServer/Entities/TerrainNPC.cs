@@ -1,9 +1,8 @@
 ﻿// * Created by Jean-Philippe Boivin
 // * Copyright © 2011
-// * Logik. Project
+// * COPS v6 Emulator
 
 using System;
-using COServer.Games;
 using COServer.Network;
 
 namespace COServer.Entities
@@ -92,12 +91,10 @@ namespace COServer.Entities
         public UInt16 RealX;
         public UInt16 RealY;
 
-        public CityWar War;
-
-        public TerrainNPC(Int32 UniqId, String Name, Byte Type, Int16 Look, Int16 Map, UInt16 X, UInt16 Y, Byte Base, Byte Sort, Int16 Level, Int32 Life, Int16 Defence, Int16 MagicDef)
+        public TerrainNPC(Int32 UniqId, String Name, Byte Type, UInt32 Look, GameMap Map, UInt16 X, UInt16 Y, Byte Base, Byte Sort, Byte Level, UInt32 Life, UInt16 Defence, UInt16 MagicDef)
             : base(UniqId)
         {
-            if ((Int16)(Look / 10) == 24 || (Int16)(Look / 10) == 27)
+            if (Look / 10 == 24 || Look / 10 == 27)
                 this.Name = "!!";
             else if (Type == (Byte)NpcType.SynFlag)
                 this.Name = "Pole";
@@ -107,7 +104,7 @@ namespace COServer.Entities
             this.Base = Base;
             this.Sort = Sort;
 
-            this.Look = (UInt32)Look;
+            mLook = Look;
             this.Map = Map;
             this.X = X;
             this.Y = Y;
@@ -117,12 +114,12 @@ namespace COServer.Entities
             this.RealY = Y;
 
             this.Level = Level;
-            this.CurHP = Life;
-            this.MaxHP = Life;
+            this.CurHP = (Int32)Life;
+            this.MaxHP = (Int32)Life;
             this.Defence = Defence;
             this.MagicDef = MagicDef;
 
-            if (UniqId - (UniqId % 10) == 100000 + (Map * 10))
+            if (UniqId - (UniqId % 10) == 100000 + (Map.Id * 10))
             {
                 if (UniqId % 10 == 1 || UniqId % 10 == 2 || (UniqId % 10 >= 5 && UniqId % 10 <= 8))
                 {
@@ -134,9 +131,7 @@ namespace COServer.Entities
 
         public void GetAttacked(Player Attacker, Int32 Damage)
         {
-            if (War != null)
-                if (Attacker.Syndicate != null)
-                    War.AddScore(Attacker.Syndicate.UniqId, Damage);
+
         }
 
         public void Die()
@@ -147,18 +142,15 @@ namespace COServer.Entities
                 if (Look / 10 == Base)
                 {
                     Look += 10;
-                    World.BroadcastRoomMsg(this, MsgUserAttrib.Create(this, Look, MsgUserAttrib.Type.Look));
                 }
             }
             else if (Type == (Byte)NpcType.SynFlag)
             {
-                if (War != null)
-                    War.Die();
                 CurHP = MaxHP;
             }
             else
                 CurHP = MaxHP;
-            World.BroadcastRoomMsg(this, MsgUserAttrib.Create(this, CurHP, MsgUserAttrib.Type.Life));
+            World.BroadcastRoomMsg(this, new MsgUserAttrib(this, CurHP, MsgUserAttrib.AttributeType.Life));
         }
 
         public Boolean IsGreen(AdvancedEntity Entity) { return (Entity.Level - Level) >= 3; }

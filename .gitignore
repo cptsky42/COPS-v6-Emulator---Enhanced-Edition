@@ -18,6 +18,11 @@ build/
 bld/
 [Bb]in/
 [Oo]bj/
+Release (x86)/
+Release (x64)/
+Test Server/
+Data/ServiceStub.exe
+Data/ServiceStub.pdb
 
 # Roslyn cache directories
 *.ide/

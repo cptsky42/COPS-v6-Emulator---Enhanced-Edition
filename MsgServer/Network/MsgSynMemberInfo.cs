@@ -1,67 +1,88 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2011 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using COServer.Entities;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgSynMemberInfo : Msg
+    public class MsgSynMemberInfo : Msg
     {
-        public const Int16 Id = _MSG_SYNMEMBERINFO;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_SYNMEMBERINFO; } }
 
-        [StructLayout(LayoutKind.Sequential)]
-        public struct MsgInfo
-        {
-            public MsgHeader Header;
-            public Int32 Donation;
-            public Byte Rank;
-            public String Name;
-        };
+        //--------------- Internal Members ---------------
+        private UInt32 __Donation = 0;
+        private Byte __Rank = 0;
+        private String __Name = "";
+        //------------------------------------------------
 
-        public static Byte[] Create(Syndicate.Member Member)
+        public UInt32 Donation
         {
-            try
-            {
-                Byte[] Out = new Byte[28];
-                fixed (Byte* p = Out)
-                {
-                    *((Int16*)(p + 0)) = (Int16)Out.Length;
-                    *((Int16*)(p + 2)) = (Int16)Id;
-                    *((Int32*)(p + 4)) = (Int32)Member.Donation;
-                    *((Byte*)(p + 8)) = (Byte)Member.Rank;
-                    for (Byte i = 0; i < (Byte)Member.Name.Length; i++)
-                        *((Byte*)(p + 9 + i)) = (Byte)Member.Name[i];
-                }
-                return Out;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+            get { return __Donation; }
+            set { __Donation = value; WriteUInt32(4, value); }
         }
 
-        public static void Process(Client Client, Byte[] Buffer)
+        public Byte Rank
         {
-            try
-            {
-                Int16 MsgLength = (Int16)((Buffer[0x01] << 8) + Buffer[0x00]);
-                Int16 MsgId = (Int16)((Buffer[0x03] << 8) + Buffer[0x02]);
-                Int32 Donation = (Int32)((Buffer[0x07] << 24) + (Buffer[0x06] << 16) + (Buffer[0x05] << 8) + Buffer[0x04]);
-                Byte Rank = (Byte)Buffer[0x08];
-                String Name = Program.Encoding.GetString(Buffer, 0x09, 0x10).TrimEnd((Char)0x00);
+            get { return __Rank; }
+            set { __Rank = value; mBuf[8] = value; }
+        }
 
-                Player Player = Client.User;
+        public String Name
+        {
+            get { return __Name; }
+            set { __Name = value; WriteString(9, value, MAX_NAME_SIZE); }
+        }
 
-                if (Player.Syndicate == null)
-                    return;
+        /// <summary>
+        /// Create a message object from the specified buffer.
+        /// </summary>
+        /// <param name="aBuf">The buffer containing the message.</param>
+        /// <param name="aIndex">The index where the message is starting in the buffer.</param>
+        /// <param name="aLength">The length of the message.</param>
+        internal MsgSynMemberInfo(Byte[] aBuf, int aIndex, int aLength)
+            : base(aBuf, aIndex, aLength)
+        {
+            __Donation = BitConverter.ToUInt32(mBuf, 4);
+            __Rank = mBuf[8];
+            __Name = Program.Encoding.GetString(mBuf, 9, MAX_NAME_SIZE).TrimEnd('\0');
+        }
 
-                Syndicate.Member Member = Player.Syndicate.GetMemberInfo(Name);
-                if (Member == null)
-                    return;
+        public MsgSynMemberInfo(Syndicate.Member aMember)
+            : base(28)
+        {
+            Donation = aMember.Proffer;
+            Rank = (Byte)aMember.Rank;
+            Name = aMember.Name;
+        }
 
-                Player.Send(MsgSynMemberInfo.Create(Member));
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
+        /// <summary>
+        /// Process the message for the specified client.
+        /// </summary>
+        /// <param name="aClient">The client who sent the message.</param>
+        public override void Process(Client aClient)
+        {
+            Player player = aClient.Player;
+            if (player.Syndicate == null)
+                return;
+
+            Syndicate.Member member = player.Syndicate.GetMemberInfo(Name);
+            if (member == null)
+                return;
+
+            player.Send(new MsgSynMemberInfo(member));
         }
     }
 }

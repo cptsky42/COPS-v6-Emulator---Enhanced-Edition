@@ -1,0 +1,17 @@
+AniFile=ani\MapScene.ani
+AniTitle=stand07.tga
+OffsetX=-89
+OffsetY=-73
+AniInterval=200
+Width=3
+Height=3
+Thick=0
+Cell[0,0]={0,0,0}
+Cell[1,0]={0,0,0}
+Cell[2,0]={0,0,0}
+Cell[0,1]={0,0,0}
+Cell[1,1]={0,0,0}
+Cell[2,1]={0,0,0}
+Cell[0,2]={0,0,0}
+Cell[1,2]={0,0,0}
+Cell[2,2]={0,0,0}

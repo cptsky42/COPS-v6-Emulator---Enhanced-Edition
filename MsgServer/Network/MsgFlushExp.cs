@@ -1,71 +1,71 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2011 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgFlushExp : Msg
+    public class MsgFlushExp : Msg
     {
-        public const Int16 Id = _MSG_FLUSHEXP;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_FLUSHEXP; } }
 
-        public enum Action
+        public enum Action : ushort
         {
             WeaponSkill = 0,
             Magic = 1,
             Skill = 2,
         };
 
-        [StructLayout(LayoutKind.Sequential)]
-        public struct MsgInfo
+        //--------------- Internal Members ---------------
+        private UInt32 __Exp = 0;
+        private UInt16 __Type = 0;
+        private Action __Action = (Action)0;
+        //------------------------------------------------
+
+        public UInt32 Exp
         {
-            public MsgHeader Header;
-            public Int32 Exp;
-            public Int16 Type;
-            public Int16 Action;
-        };
-
-        public static Byte[] Create(Magic Magic)
-        {
-            try
-            {
-                MsgInfo* pMsg = stackalloc MsgInfo[1];
-                pMsg->Header.Length = (Int16)sizeof(MsgInfo);
-                pMsg->Header.Type = Id;
-
-                pMsg->Exp = Magic.Exp;
-                pMsg->Type = Magic.Type;
-                pMsg->Action = (Byte)Action.Magic;
-
-                Byte[] Out = new Byte[pMsg->Header.Length];
-                Marshal.Copy((IntPtr)pMsg, Out, 0, Out.Length);
-
-                return Out;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+            get { return __Exp; }
+            set { __Exp = value; WriteUInt32(4, value); }
         }
 
-        public static Byte[] Create(WeaponSkill WeaponSkill)
+        public new UInt16 Type
         {
-            try
-            {
-                MsgInfo* pMsg = (MsgInfo*)Marshal.AllocHGlobal(sizeof(MsgInfo)).ToPointer();
-                pMsg->Header.Length = (Int16)sizeof(MsgInfo);
-                pMsg->Header.Type = Id;
+            get { return __Type; }
+            set { __Type = value; WriteUInt16(8, value); }
+        }
 
-                pMsg->Exp = WeaponSkill.Exp;
-                pMsg->Type = WeaponSkill.Type;
-                pMsg->Action = (Byte)Action.WeaponSkill;
+        public Action _Action
+        {
+            get { return __Action; }
+            set { __Action = value; WriteUInt16(10, (UInt16)value); }
+        }
 
-                Byte[] Out = new Byte[pMsg->Header.Length];
-                Marshal.Copy((IntPtr)pMsg, Out, 0, Out.Length);
-                Marshal.FreeHGlobal((IntPtr)pMsg);
+        public MsgFlushExp(Magic aMagic)
+            : base(12)
+        {
+            Exp = aMagic.Exp;
+            Type = aMagic.Type;
+            _Action = Action.Magic;
+        }
 
-                return Out;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+        public MsgFlushExp(WeaponSkill aSkill)
+            : base(12)
+        {
+            Exp = aSkill.Exp;
+            Type = aSkill.Type;
+            _Action = Action.WeaponSkill;
         }
     }
 }

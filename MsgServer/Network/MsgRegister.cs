@@ -1,106 +1,159 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.IO;
-using System.Runtime.InteropServices;
-using CO2_CORE_DLL;
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgRegister : Msg
+    public class MsgRegister : Msg
     {
-        public const Int16 Id = _MSG_REGISTER;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_REGISTER; } }
 
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        public struct MsgInfo
-        {
-            public MsgHeader Header;
-            public fixed Byte Account[0x10];
-            public fixed Byte Name[0x10];
-            public fixed Byte Password[0x10];
-            public Int16 Look;
-            public Int16 Profession;
-            public Int32 AccountUID;
-        };
+        //--------------- Internal Members ---------------
+        private String __Account = "";
+        private String __Name = "";
+        private String __Password = "";
+        private UInt16 __Look = 0;
+        private UInt16 __Profession = 0;
+        private UInt32 __AccountUID = 0;
+        //------------------------------------------------
 
-        public static void Process(Client Client, Byte[] Buffer)
+        /// <summary>
+        /// Account name.
+        /// </summary>
+        public String Account
         {
-            try
+            get { return __Account; }
+            set { __Account = value; WriteString(0x04, value, MAX_NAME_SIZE); }
+        }
+
+        /// <summary>
+        /// Player's name.
+        /// </summary>
+        public String Name
+        {
+            get { return __Name; }
+            set { __Name = value; WriteString(0x14, value, MAX_NAME_SIZE); }
+        }
+
+        /// <summary>
+        /// Un-encrypted password of the account.
+        /// </summary>
+        public String Password
+        {
+            get { return __Password; }
+            set { __Password = value; WriteString(0x24, value, MAX_NAME_SIZE); }
+        }
+
+        /// <summary>
+        /// Player's look.
+        /// </summary>
+        public UInt16 Look
+        {
+            get { return __Look; }
+            set { __Look = value; WriteUInt16(0x34, value); }
+        }
+
+        /// <summary>
+        /// Player's profession.
+        /// </summary>
+        public Byte Profession
+        {
+            get { return (Byte)__Profession; }
+            set { __Profession = value; WriteUInt16(0x36, value); }
+        }
+
+        /// <summary>
+        /// Account UID.
+        /// </summary>
+        public UInt32 AccountUID
+        {
+            get { return __AccountUID; }
+            set { __AccountUID = value; WriteUInt32(0x38, value); }
+        }
+
+        /// <summary>
+        /// Create a message object from the specified buffer.
+        /// </summary>
+        /// <param name="aBuf">The buffer containing the message.</param>
+        /// <param name="aIndex">The index where the message is starting in the buffer.</param>
+        /// <param name="aLength">The length of the message.</param>
+        internal MsgRegister(Byte[] aBuf, int aIndex, int aLength)
+            : base(aBuf, aIndex, aLength)
+        {
+            __Account = Program.Encoding.GetString(mBuf, 0x04, MAX_NAME_SIZE).TrimEnd('\0');
+            __Name = Program.Encoding.GetString(mBuf, 0x14, MAX_NAME_SIZE).TrimEnd('\0');
+            __Password = Program.Encoding.GetString(mBuf, 0x24, MAX_NAME_SIZE).TrimEnd('\0');
+            __Look = BitConverter.ToUInt16(mBuf, 0x34);
+            __Profession = BitConverter.ToUInt16(mBuf, 0x36);
+            __AccountUID = BitConverter.ToUInt32(mBuf, 0x38);
+        }
+
+        /// <summary>
+        /// Process the message for the specified client.
+        /// </summary>
+        /// <param name="aClient">The client who sent the message.</param>
+        public override void Process(Client aClient)
+        {
+            if (aClient.Account != Account)
             {
-                if (Client == null || Buffer == null)
-                    return;
-
-                if (Buffer.Length != sizeof(MsgInfo))
-                    return;
-
-                fixed (Byte* pBuf = Buffer)
+                if (Account.StartsWith("NEW"))
+                    Account = Account.Substring(3, Account.Length - 3);
+                else
                 {
-                    MsgInfo* pMsg = (MsgInfo*)pBuf;
-
-                    String Account = Kernel.cstring(pMsg->Account, 0x10);
-                    String Name = Kernel.cstring(pMsg->Name, 0x10);
-                    String Password = Kernel.cstring(pMsg->Password, 0x10);
-
-                    if (Client.Account != Account)
-                    {
-                        if (Account.StartsWith("NEW"))
-                            Account = Account.Substring(3, Account.Length - 3);
-                        else
-                        {
-                            Client.Socket.Disconnect();
-                            return;
-                        }
-                    }
-
-                    if (Account.GetHashCode() != pMsg->AccountUID)
-                    {
-                        Client.Socket.Disconnect();
-                        return;
-                    }
-
-                    Byte Face = 67;
-                    if (pMsg->Look / 1000 == 2)
-                        Face = 201;
-
-                    Boolean ValidName = true;
-
-                    if (Name.IndexOfAny(new Char[] { ' ', '[', ']', '.', ',', ':', '*', '?', '"', '<', '>', '|', '/', '\\' }) > -1)
-                        ValidName = false;
-
-                    if (ValidName)
-                    {
-                        Boolean NameInUse = false;
-                        String[] Characters = Directory.GetFiles(Program.RootPath + "\\Characters", "*.chr");
-                        foreach (String Character in Characters)
-                        {
-                            String CharName = Character.Replace(Program.RootPath + "\\Characters\\", "").Replace(".chr", "");
-                            if (CharName == Name)
-                            {
-                                NameInUse = true;
-                                break;
-                            }
-                        }
-
-                        if (!NameInUse)
-                        {
-                            Client.Send(MsgTalk.Create("SYSTEM", "ALLUSERS", "ANSWER_OK", MsgTalk.Channel.Register, 0x000000));
-                            if (!Database.Register(Account, Name, (Face * 10000) + pMsg->Look, (Byte)pMsg->Profession))
-                            {
-                                Client.Socket.Disconnect();
-                                return;
-                            }
-                            Program.Log("Creation of " + Name + ", with " + Client.Account + " (" + Client.Socket.IpAddress + ").");
-                        }
-                        else
-                            Client.Send(MsgTalk.Create("SYSTEM", "ALLUSERS", Client.GetStr("STR_NAME_USED"), MsgTalk.Channel.Register, 0xFF0000));
-                    }
-                    else
-                        Client.Send(MsgTalk.Create("SYSTEM", "ALLUSERS", Client.GetStr("STR_INVALID_NAME"), MsgTalk.Channel.Register, 0xFF0000));
+                    aClient.Disconnect();
+                    return;
                 }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
+
+            if (aClient.AccountID != AccountUID)
+            {
+                aClient.Disconnect();
+                return;
+            }
+
+            Byte face = 67;
+            if (Look / 1000 == 2)
+                face = 201;
+
+            Boolean isValidName = true;
+
+            if (Name.IndexOfAny(new Char[] { ' ', '[', ']', '.', ',', ':', '*', '?', '"', '<', '>', '|', '/', '\\' }) > -1)
+                isValidName = false;
+
+            if (isValidName)
+            {
+                Boolean isNameInUse = false;
+                // TODO check if name is used by a player in the database...
+
+                if (!isNameInUse)
+                {
+                    aClient.Send(new MsgTalk("SYSTEM", "ALLUSERS", "ANSWER_OK", Channel.Register, 0x000000));
+                    if (!Database.CreatePlayer(aClient, Name, (face * 10000) + Look, Profession))
+                    {
+                        aClient.Disconnect();
+                        return;
+                    }
+                    sLogger.Info("Creation of '{0}', with the account '{1}' ({2}).",
+                        Name, Account, aClient.IPAddress);
+                }
+                else
+                    aClient.Send(new MsgTalk("SYSTEM", "ALLUSERS", StrRes.STR_NAME_USED, Channel.Register, Color.Red));
+            }
+            else
+                aClient.Send(new MsgTalk("SYSTEM", "ALLUSERS", StrRes.STR_INVALID_NAME, Channel.Register, Color.Red));
         }
     }
 }

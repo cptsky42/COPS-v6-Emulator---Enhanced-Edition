@@ -1,122 +1,193 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
+using System.Globalization;
 using System.IO;
 using System.Text;
-using System.Globalization;
-using COServer.Threads;
-using COServer.Network;
-using AMS.Profile;
-using CO2_CORE_DLL;
-using CO2_CORE_DLL.Security;
-using CO2_CORE_DLL.Net.Sockets;
+using COServer.Network.Sockets;
+using COServer.Security.Cryptography;
+using COServer.Workers;
 
 namespace COServer
 {
-    public unsafe class Server
+    /// <summary>
+    /// The server itself.
+    /// </summary>
+    public class Server
     {
-        //private static UsageChecker Checker;
-        public static NetworkIO NetworkIO;
-        private static ServerSocket Socket;
+        /// <summary>
+        /// The logger of the class.
+        /// </summary>
+        private static readonly log4net.ILog sLogger = log4net.LogManager.GetLogger(typeof(Server));
 
-        public static Int32 COSAC_PKey = 0x13FA0F9D;
-        public static Int32 COSAC_GKey = 0x6D5C7962;
-        public static UInt32 CORC5_PWKey = 0xB7E15163;
-        public static UInt32 CORC5_QWKey = 0x61C88647;
-        public static Byte[] CORC5_BufKey = new Byte[] { 0x3C, 0xDC, 0xFE, 0xE8, 0xC4, 0x54, 0xD6, 0x7E, 0x16, 0xA6, 0xF8, 0x1A, 0xE8, 0xD0, 0x38, 0xBE };
+        /// <summary>
+        /// The seed of the RC5 algorithm used to encrypt passwords.
+        /// </summary>
+        public static readonly Byte[] RC5_SEED = new Byte[] { 0x3C, 0xDC, 0xFE, 0xE8, 0xC4, 0x54, 0xD6, 0x7E, 0x16, 0xA6, 0xF8, 0x1A, 0xE8, 0xD0, 0x38, 0xBE };
 
+        /// <summary>
+        /// The path of the configuration file.
+        /// </summary>
+        public static readonly String CONFIG_FILE = Program.RootPath + "/AccServer.ini";
+
+        /// <summary>
+        /// The socket of the server.
+        /// </summary>
+        private static TcpServer sSocket = null;
+
+        /// <summary>
+        /// Start the execution of the server.
+        /// </summary>
         public static void Run()
         {
-            if (!File.Exists(Program.RootPath + "\\AccServer.xml"))
+            if (!File.Exists(CONFIG_FILE))
             {
+                sLogger.Fatal("Couldn't find the configuration file at '{0}'.", CONFIG_FILE);
                 Environment.Exit(0);
-                return;
             }
 
-            UInt16 Port = 0;
-            Int32 BackLog = 0;
+            UInt16 port = 0;
+            Int32 backlog = 0;
 
-            Xml AMSXml = new Xml(Program.RootPath + "\\AccServer.xml");
-            AMSXml.RootName = "AccServer";
+            String mysql_host, mysql_db, mysql_user, mysql_pwd;
+            int mysql_nb_connections;
 
-            Port = (UInt16)AMSXml.GetValue("Socket", "Port", 9958);
-            BackLog = AMSXml.GetValue("Socket", "BackLog", 100);
-            Program.Encoding = Encoding.GetEncoding(AMSXml.GetValue("Program", "Encoding", "iso-8859-1"));
-            Program.Debug = AMSXml.GetValue("Program", "Debug", false);
-            COSAC_PKey = Int32.Parse(AMSXml.GetValue("Cryptography", "COSAC_PKey", "13FA0F9D"), NumberStyles.HexNumber);
-            COSAC_GKey = Int32.Parse(AMSXml.GetValue("Cryptography", "COSAC_GKey", "6D5C7962"), NumberStyles.HexNumber);
-            CORC5_PWKey = UInt32.Parse(AMSXml.GetValue("Cryptography", "CORC5_PWKey", "B7E15163"), NumberStyles.HexNumber);
-            CORC5_QWKey = UInt32.Parse(AMSXml.GetValue("Cryptography", "CORC5_QWKey", "61C88647"), NumberStyles.HexNumber);
-            AMSXml = null;
+            String ip2loc_host, ip2loc_db, ip2loc_user, ip2loc_pwd;
+            int ip2loc_nb_connections;
+
+            using (Ini doc = new Ini(CONFIG_FILE))
+            {
+                port = doc.ReadUInt16("Socket", "Port", 9958);
+                backlog = doc.ReadInt32("Socket", "BackLog", 100);
+                Program.Encoding = Encoding.GetEncoding(doc.ReadString("Program", "Encoding", "iso-8859-1"));
+                Program.Debug = doc.ReadBoolean("Program", "Debug", false);
+
+                mysql_host = doc.ReadString("MySQL", "Host", "localhost");
+                mysql_db = doc.ReadString("MySQL", "Database", "zfserver");
+                mysql_user = doc.ReadString("MySQL", "Username", "zfserver");
+                mysql_pwd = doc.ReadString("MySQL", "Password", "");
+                mysql_nb_connections = doc.ReadInt32("MySQL", "NbConnections", 1);
+
+                Database.IP2LOCATION_ENABLED = doc.ReadBoolean("IP2Location", "Enabled", false);
+                ip2loc_host = doc.ReadString("IP2Location", "Host", "localhost");
+                ip2loc_db = doc.ReadString("IP2Location", "Database", "zfserver");
+                ip2loc_user = doc.ReadString("IP2Location", "Username", "zfserver");
+                ip2loc_pwd = doc.ReadString("IP2Location", "Password", "");
+                ip2loc_nb_connections = doc.ReadInt32("IP2Location", "NbConnections", 1);
+            }
+
+            if (!Database.SetupMySQL(mysql_nb_connections, mysql_host, mysql_db, mysql_user, mysql_pwd))
+            {
+                sLogger.Fatal("Failed to setup MySQL...");
+                Console.ReadLine();
+                Environment.Exit(0);
+            }
+
+            if (Database.IP2LOCATION_ENABLED)
+            {
+                if (!Database.SetupIP2Location(ip2loc_nb_connections, ip2loc_host, ip2loc_db, ip2loc_user, ip2loc_pwd))
+                {
+                    sLogger.Fatal("Failed to setup IP2Location...");
+                    Console.ReadLine();
+                    Environment.Exit(0);
+                }
+            }
 
             Database.GetBannedIPs();
 
-            NetworkIO = new NetworkIO();
-            Socket = new ServerSocket();
-            Socket.OnConnect += new NetworkClientConnection(ConnectionHandler);
-            Socket.OnReceive += new NetworkClientReceive(ReceiveHandler);
-            Socket.OnDisconnect += new NetworkClientConnection(DisconnectionHandler);
-            Socket.Listen(Port, BackLog);
-            Socket.Accept();
+            sSocket = new TcpServer();
+            sSocket.OnConnect += new NetworkClientConnection(ConnectionHandler);
+            sSocket.OnReceive += new NetworkClientReceive(ReceiveHandler);
+            sSocket.OnDisconnect += new NetworkClientConnection(DisconnectionHandler);
+            sSocket.Listen(port, backlog);
+            sSocket.Accept();
 
-            Console.WriteLine("Waiting for new connection...");
+            sLogger.Info("Waiting for new connection...");
+            ServiceEventsListener.Create();
         }
 
-        private static void ConnectionHandler(Object Obj)
+        /// <summary>
+        /// Restart the server.
+        /// </summary>
+        public static void Restart()
         {
-            NetworkClient Socket = Obj as NetworkClient;
-            if (Socket != null)
-                Socket.Owner = new Client(Socket);
+            if (sSocket != null)
+            {
+                // disconnect directly the client on connection...
+                sSocket.OnConnect += new NetworkClientConnection(DisconnectionHandler);
+            }
+
+            Program.Exit(true);
         }
 
-        private static void ReceiveHandler(Object Obj, Byte[] Buffer)
+        /// <summary>
+        /// Stop the server.
+        /// </summary>
+        public static void Stop()
         {
-            NetworkClient Socket = Obj as NetworkClient;
+            if (sSocket != null)
+            {
+                // disconnect directly the client on connection...
+                sSocket.OnConnect += new NetworkClientConnection(DisconnectionHandler);
+            }
 
+            Program.Exit(false);
+        }
+
+        /// <summary>
+        /// Handle a new connection on the server.
+        /// </summary>
+        /// <param name="aSocket">The socket of the newly connected client.</param>
+        private static void ConnectionHandler(TcpSocket aSocket)
+        {
+            if (aSocket != null)
+                aSocket.Wrapper = new Client(aSocket);
+        }
+
+        /// <summary>
+        /// Handle the reception of data from a client.
+        /// </summary>
+        /// <param name="aSocket">The socket of the client that sent the data.</param>
+        /// <param name="aData">The data.</param>
+        private static void ReceiveHandler(TcpSocket aSocket, ref Byte[] aData)
+        {
             try
             {
-                if (Socket != null && Socket.Owner != null)
+                if (aSocket != null && aSocket.Wrapper != null)
                 {
-                    if (Buffer.Length < sizeof(Msg.MsgHeader))
+                    Client client = aSocket.Wrapper as Client;
+
+                    if (client == null)
                         return;
 
-                    Int32 Length = Buffer.Length;
-
-                    Byte* Received = stackalloc Byte[Length];
-                    Kernel.memcpy(Received, Buffer, Length);
-
-                    (Socket.Owner as Client).Cipher.Decrypt(Received, Length);
-
-                    Int16 Size = 0;
-                    for (Int32 i = 0; i < Length; i += Size)
-                    {
-                        Size = ((Msg.MsgHeader*)(Received + i))->Length;
-                        if (Size < Length)
-                        {
-                            Byte[] Packet = new Byte[Size];
-                            Kernel.memcpy(Packet, Received + i, Size);
-                            Server.NetworkIO.Receive((Socket.Owner as Client), Packet);
-                        }
-                        else
-                        {
-                            Byte[] Packet = new Byte[Length];
-                            Kernel.memcpy(Packet, Received, Length);
-                            Server.NetworkIO.Receive((Socket.Owner as Client), Packet);
-                        }
-                    }
+                    client.Receive(ref aData);
                 }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); Socket.Disconnect(); }
+            catch (Exception exc)
+            {
+                sLogger.Warn("Something wrong happened while receiving data.\n{0}", exc);
+                aSocket.Disconnect();
+            }
         }
 
-        private static void DisconnectionHandler(Object Obj)
+        /// <summary>
+        /// Handle the disconnection of a client.
+        /// </summary>
+        /// <param name="aSocket">The socket fo the client now disconnected.</param>
+        private static void DisconnectionHandler(TcpSocket aSocket)
         {
-            NetworkClient Socket = Obj as NetworkClient;
-            if (Socket != null && Socket.Owner != null)
+            if (aSocket != null && aSocket.Wrapper != null)
             {
-                Socket.Owner = null;
+                Client client = aSocket.Wrapper as Client;
+                client.Dispose();
+
+                aSocket.Wrapper = null;
             }
         }
     }

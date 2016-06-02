@@ -1,123 +1,157 @@
-// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using COServer.Entities;
-using CO2_CORE_DLL;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgWalk : Msg
+    /// <summary>
+    /// Message sent to the client by the MsgServer or by the client to the MsgServer to
+    /// indicate a deplacement in a specific direction by walking or running.
+    /// </summary>
+    public class MsgWalk : Msg
     {
-        public const Int16 Id = _MSG_WALK;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_WALK; } }
 
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        public struct MsgInfo
+        //--------------- Internal Members ---------------
+        private Int32 __UniqId = 0;
+        private Byte __Direction = 0;
+        private Byte __Mode = 0;
+        private UInt16 __Unknown = 0;
+        //------------------------------------------------
+
+        /// <summary>
+        /// Unique Id of the entity which is walking.
+        /// </summary>
+        public Int32 UniqId
         {
-            public MsgHeader Header;
-            public Int32 UniqId;
-            public Byte Direction;
-            public Byte Mode;
-            public Int16 Unknow;
-        };
-
-        public static Byte[] Create(Int32 UniqId, Byte Direction, Boolean Run)
-        {
-            try
-            {
-                MsgInfo* Msg = stackalloc MsgInfo[1];
-                Msg->Header.Length = (Int16)sizeof(MsgInfo);
-                Msg->Header.Type = Id;
-
-                Msg->UniqId = UniqId;
-                Msg->Direction = (Byte)(((MyMath.Generate(100, 255) % 31) * 8) + Direction);
-                Msg->Mode = Run ? (Byte)0x00 : (Byte)0x01;
-                Msg->Unknow = 0x00;
-
-                Byte[] Out = new Byte[Msg->Header.Length];
-                Kernel.memcpy(Out, Msg, Out.Length);
-                return Out;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+            get { return __UniqId; }
+            set { __UniqId = value; WriteInt32(4, value); }
         }
 
-        public static void Process(Client Client, Byte[] Buffer)
+        /// <summary>
+        /// Direction of the mouvement.
+        /// </summary>
+        public Byte Direction
         {
-            try
+            get { return __Direction; }
+            set { __Direction = value; mBuf[8] = (Byte)(((MyMath.Generate(100, 255) % 31) * 8) + value); }
+        }
+
+        /// <summary>
+        /// Mode of the mouvement (walk/run).
+        /// </summary>
+        public Byte Mode
+        {
+            get { return __Mode; }
+            set { __Mode = value; mBuf[9] = value; }
+        }
+
+        /// <summary>
+        /// Create a message object from the specified buffer.
+        /// </summary>
+        /// <param name="aBuf">The buffer containing the message.</param>
+        /// <param name="aIndex">The index where the message is starting in the buffer.</param>
+        /// <param name="aLength">The length of the message.</param>
+        internal MsgWalk(Byte[] aBuf, int aIndex, int aLength)
+            : base(aBuf, aIndex, aLength)
+        {
+            __UniqId = BitConverter.ToInt32(mBuf, 4);
+            __Direction = (Byte)(mBuf[8] % 8);
+            __Mode = mBuf[9];
+            __Unknown = BitConverter.ToUInt16(mBuf, 10);
+        }
+
+        /// <summary>
+        /// Create a message for the specified entity to move it
+        /// in the specified direction.
+        /// </summary>
+        /// <param name="aUniqId">The unique Id of the entity.</param>
+        /// <param name="aDirection">The direction of the mouvement.</param>
+        /// <param name="aIsRunning">The mode of the mouvement.</param>
+        public MsgWalk(Int32 aUniqId, Byte aDirection, Boolean aIsRunning)
+            : base(12)
+        {
+            UniqId = aUniqId;
+            Direction = aDirection;
+            Mode = aIsRunning ? (Byte)0 : (Byte)1;
+        }
+
+        /// <summary>
+        /// Process the message for the specified client.
+        /// </summary>
+        /// <param name="aClient">The client who sent the message.</param>
+        public override void Process(Client aClient)
+        {
+            Player player = aClient.Player;
+            bool isRunning = Mode != 0;
+
+            if (UniqId != player.UniqId)
             {
-                if (Client == null || Buffer == null || Client.User == null)
-                    return;
-
-                if (Buffer.Length != sizeof(MsgInfo))
-                    return;
-
-                fixed (Byte* pBuf = Buffer)
-                {
-                    MsgInfo* pMsg = (MsgInfo*)pBuf;
-
-                    Player Player = Client.User;
-                    Map Map = null;
-
-                    if (pMsg->UniqId != Player.UniqId)
-                    {
-                        Client.Disconnect();
-                        return;
-                    }
-
-                    Byte Dir = (Byte)(pMsg->Direction % 8);
-                    UInt16 NewX = Player.X;
-                    UInt16 NewY = Player.Y;
-
-                    switch (Dir)
-                    {
-                        case 0: { NewY += 1; break; }
-                        case 1: { NewX -= 1; NewY += 1; break; }
-                        case 2: { NewX -= 1; break; }
-                        case 3: { NewX -= 1; NewY -= 1; break; }
-                        case 4: { NewY -= 1; break; }
-                        case 5: { NewX += 1; NewY -= 1; break; }
-                        case 6: { NewX += 1; break; }
-                        case 7: { NewX += 1; NewY += 1; break; }
-                    }
-
-                    if (Player != null)
-                    {
-                        //if (!Player.IsAlive() && !Player.IsGhost())
-                        //{
-                        //    Player.SendSysMsg(Client.GetStr("STR_DIE"));
-                        //    return;
-                        //}
-
-                        if (World.AllMaps.TryGetValue(Player.Map, out Map))
-                        {
-                            if (!Map.IsValidPoint(NewX, NewY))
-                            {
-                                Player.SendSysMsg(Client.GetStr("STR_INVALID_COORDINATE"));
-                                Player.KickBack();
-                                return;
-                            }
-                        }
-
-                        Player.PrevX = Player.X;
-                        Player.PrevY = Player.Y;
-
-                        Player.X = NewX;
-                        Player.Y = NewY;
-                        Player.Direction = Dir;
-                        Player.Action = (Int16)MsgAction.Emotion.StandBy;
-
-                        Player.IsInBattle = false;
-                        Player.MagicIntone = false;
-                        Player.Mining = false;
-
-                        Player.Send(Buffer);
-                        Player.Screen.Move(Buffer);
-                    }
-                }
+                aClient.Disconnect();
+                return;
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
+
+            UInt16 newX = player.X;
+            UInt16 newY = player.Y;
+
+            switch (Direction)
+            {
+                case 0: { newY += 1; break; }
+                case 1: { newX -= 1; newY += 1; break; }
+                case 2: { newX -= 1; break; }
+                case 3: { newX -= 1; newY -= 1; break; }
+                case 4: { newY -= 1; break; }
+                case 5: { newX += 1; newY -= 1; break; }
+                case 6: { newX += 1; break; }
+                case 7: { newX += 1; newY += 1; break; }
+            }
+
+            if (player != null)
+            {
+                // TODO isGhost()
+                //if (!Player.IsAlive() && !Player.IsGhost())
+                //{
+                //    Player.SendSysMsg(StrRes.STR_DIE);
+                //    return;
+                //}
+
+                if (!player.Map.GetFloorAccess(newX, newY))
+                {
+                    player.SendSysMsg(StrRes.STR_INVALID_COORDINATE);
+                    player.KickBack();
+                    return;
+                }
+
+                // TODO re-enable prevX/Y in walk ?
+                //player.PrevX = player.X;
+                //player.PrevY = player.Y;
+
+                player.X = newX;
+                player.Y = newY;
+                player.Direction = Direction;
+                player.Action = Emotion.StandBy;
+
+                player.IsInBattle = false;
+                player.MagicIntone = false;
+                player.Mining = false;
+
+                player.Send(this);
+                player.Screen.Move(this);
+            }
         }
     }
 }

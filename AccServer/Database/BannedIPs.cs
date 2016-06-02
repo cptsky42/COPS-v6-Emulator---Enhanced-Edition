@@ -1,63 +1,92 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
 using System.IO;
 
 namespace COServer
 {
-    public partial class Database
+    public static partial class Database
     {
-        public static String[] BannedIPs;
+        /// <summary>
+        /// All the banned IP addresses (from, to).
+        /// </summary>
+        private static Tuple<UInt32, UInt32>[] sBannedIPs = new Tuple<UInt32, UInt32>[0];
 
+        /// <summary>
+        /// Load the banned IP addresses.
+        /// </summary>
         public static void GetBannedIPs()
         {
-            try
+            if (!File.Exists(Program.RootPath + "/BannedIPs.list"))
             {
-                if (!File.Exists(Program.RootPath + "\\BannedIPs.list"))
-                    File.Create(Program.RootPath + "\\BannedIPs.list");
-
-                BannedIPs = File.ReadAllLines(Program.RootPath + "\\BannedIPs.list");
+                var stream = File.Create(Program.RootPath + "/BannedIPs.list");
+                stream.Dispose();
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
+
+            String[] lines = File.ReadAllLines(Program.RootPath + "/BannedIPs.list");
+            sBannedIPs = new Tuple<UInt32, UInt32>[lines.Length];
+
+            for (int i = 0; i < lines.Length; ++i)
+            {
+                String[] parts = lines[i].Split('.');
+
+                UInt32 from = 0;
+                UInt32 to = 0;
+
+                from += Byte.Parse(parts[0]) * 0xFF000000U;
+                if (parts[1] != "*")
+                {
+                    from += Byte.Parse(parts[1]) * 0x00FF0000U;
+                    if (parts[2] != "*")
+                    {
+                        from += Byte.Parse(parts[2]) * 0x0000FF00U;
+                        if (parts[3] != "*")
+                        {
+                            from += Byte.Parse(parts[3]);
+                            to = from;
+                        }
+                        else
+                            to = from + 0x000000FFU;
+                    }
+                    else
+                        to = from + 0x0000FFFFU;
+                }
+                else
+                    to = from + 0x00FFFFFFU;
+
+                sBannedIPs[i] = new Tuple<UInt32, UInt32>(from, to);
+            }
         }
 
-        public static Boolean IsIPBanned(String IP)
+        /// <summary>
+        /// Determine whether or not the IP address is banned.
+        /// </summary>
+        /// <param name="aIPAddress">The IP address to check.</param>
+        /// <returns>TRUE if the IP address is banned. FALSE otherwise.</returns>
+        public static Boolean IsBanned(String aIPAddress)
         {
-            try
-            {
-                for (Int32 i = 0; i < BannedIPs.Length; i++)
-                {
-                    String[] Splitter = BannedIPs[i].Split('.');
-                    String[] TheSplit = IP.Split('.');
-
-                    //Internet Protocol Adresse
-                    if (BannedIPs[i] == IP)
-                        return true;
-
-                    //Internet Protocol with Joker
-                    if (Splitter[0] == TheSplit[0])
-                    {
-                        if (Splitter[1] == "*")
-                            return true;
-                        else
-                            if (Splitter[1] == TheSplit[1])
-                            {
-                                if (Splitter[2] == "*")
-                                    return true;
-                                else
-                                    if (Splitter[2] == TheSplit[2])
-                                    {
-                                        if (Splitter[3] == "*")
-                                            return true;
-                                    }
-                            }
-                    }
-                }
+            String[] parts = aIPAddress.Split('.');
+            if (parts.Length != 4)
                 return false;
+
+            UInt32 ip = (Byte.Parse(parts[0]) * 0xFF000000U) +
+                (Byte.Parse(parts[1]) * 0x00FF0000U) +
+                (Byte.Parse(parts[2]) * 0x0000FF00U) +
+                (Byte.Parse(parts[3]));
+
+            foreach (Tuple<UInt32, UInt32> tuple in sBannedIPs)
+            {
+                if (ip >= tuple.Item1 && ip <= tuple.Item2)
+                    return true;
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); return false; }
+
+            return false;
         }
     }
 }

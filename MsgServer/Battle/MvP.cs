@@ -1,6 +1,6 @@
 ﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2011
-// * Logik. Project
+// * Copyright © 2011, 2015
+// * COPS v6 Emulator
 
 using System;
 using System.Collections.Generic;
@@ -15,10 +15,6 @@ namespace COServer
         {
             try
             {
-                Map Map = null;
-                if (!World.AllMaps.TryGetValue(Attacker.Map, out Map))
-                    return;
-
                 if (!Attacker.IsAlive())
                 {
                     Attacker.IsInBattle = false;
@@ -43,7 +39,7 @@ namespace COServer
                     return;
                 }
 
-                if (Target.ContainsFlag(Player.Flag.Flying))
+                if (Target.IsFlying())
                 {
                     Attacker.IsInBattle = false;
                     return;
@@ -51,7 +47,7 @@ namespace COServer
 
                 if (!MyMath.Success(Attacker.Dexterity))
                 {
-                    World.BroadcastMapMsg(Attacker.Map, MsgInteract.Create(Attacker, Target, 0, (MsgInteract.Action)Attacker.AtkType));
+                    World.BroadcastMapMsg(Attacker, new MsgInteract(Attacker, Target, 0, (MsgInteract.Action)Attacker.AtkType));
                     return;
                 }
 
@@ -62,26 +58,26 @@ namespace COServer
 
                 if (!Target.Reflect())
                 {
-                    World.BroadcastMapMsg(Attacker.Map, MsgInteract.Create(Attacker, Target, Damage, MsgInteract.Action.Attack));
+                    World.BroadcastMapMsg(Attacker, new MsgInteract(Attacker, Target, Damage, MsgInteract.Action.Attack));
                     if (Damage >= Target.CurHP)
                     {
-                        Target.Die();
-                        World.BroadcastMapMsg(Attacker.Map, MsgInteract.Create(Attacker, Target, 1, MsgInteract.Action.Kill));
+                        Target.Die(Attacker);
+                        World.BroadcastMapMsg(Attacker, new MsgInteract(Attacker, Target, 1, MsgInteract.Action.Kill));
                     }
                     else
                     {
                         Target.CurHP -= Damage;
-                        Target.Send(MsgUserAttrib.Create(Target, Target.CurHP, MsgUserAttrib.Type.Life));
+                        Target.Send(new MsgUserAttrib(Target, Target.CurHP, MsgUserAttrib.AttributeType.Life));
                         if (Target.Team != null)
-                            World.BroadcastTeamMsg(Target.Team, MsgUserAttrib.Create(Target, Target.CurHP, MsgUserAttrib.Type.Life));
+                            Target.Team.BroadcastMsg(new MsgUserAttrib(Target, Target.CurHP, MsgUserAttrib.AttributeType.Life));
                         
-                        if (Target.Action == (Byte)MsgAction.Emotion.SitDown)
+                        if (Target.Action == Emotion.SitDown)
                         {
                             Target.Energy /= 2;
-                            Target.Send(MsgUserAttrib.Create(Target, Target.Energy, MsgUserAttrib.Type.Energy));
+                            Target.Send(new MsgUserAttrib(Target, Target.Energy, MsgUserAttrib.AttributeType.Energy));
                             
-                            Target.Action = (Byte)MsgAction.Emotion.StandBy;
-                            World.BroadcastRoomMsg(Target, MsgAction.Create(Target, (Byte)MsgAction.Emotion.StandBy, MsgAction.Action.Emotion), true);
+                            Target.Action = Emotion.StandBy;
+                            World.BroadcastRoomMsg(Target, new MsgAction(Target, (int)Target.Action, MsgAction.Action.Emotion), true);
                         }
                     }
                 }
@@ -90,20 +86,20 @@ namespace COServer
                     if (Damage > 2000)
                         Damage = 2000;
 
-                    World.BroadcastMapMsg(Attacker.Map, MsgInteract.Create(Target, Attacker, Damage, MsgInteract.Action.ReflectWeapon));
+                    World.BroadcastMapMsg(Attacker, new MsgInteract(Target, Attacker, Damage, MsgInteract.Action.ReflectWeapon));
                     if (Damage >= Attacker.CurHP)
                     {
                         Attacker.Die(0);
-                        World.BroadcastMapMsg(Target, MsgInteract.Create(Target, Attacker, 1, MsgInteract.Action.Kill), true);
+                        World.BroadcastMapMsg(Target, new MsgInteract(Target, Attacker, 1, MsgInteract.Action.Kill), true);
                     }
                     else
                     {
                         Attacker.CurHP -= Damage;
-                        World.BroadcastMapMsg(Attacker.Map, MsgUserAttrib.Create(Attacker, Attacker.CurHP, MsgUserAttrib.Type.Life));
+                        World.BroadcastMapMsg(Attacker, new MsgUserAttrib(Attacker, Attacker.CurHP, MsgUserAttrib.AttributeType.Life));
                     }
                 }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
+            catch (Exception exc) { sLogger.Error(exc); }
         }
     }
 }

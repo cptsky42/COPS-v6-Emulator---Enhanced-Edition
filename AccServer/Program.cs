@@ -1,68 +1,54 @@
-﻿// * ***************************************
-// *              CREDITS
-// * ***************************************
-// *  Originally created by Jean-Philippe Boivin (CptSky @ e*pvp), Copyright (C) 2010-2011,
-// *  Logik, All rights reserved.
-// *  
-// * ***************************************
-// *              SPECIAL THANKS
-// * ***************************************
-// * Sparkie (Unknownone @ e*pvp)
-// * Hybrid (InfamousNoone @ e*pvp) [Net.Sockets.dll]
-// * 
-// * ***************************************
-
-
-// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.IO;
-using System.Text;
-using System.Threading;
-using System.Reflection;
 using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+using System.Text;
+using log4net.Config;
 
 namespace COServer
 {
     public class Program
     {
+        /// <summary>
+        /// The logger of the class.
+        /// </summary>
+        private static readonly log4net.ILog sLogger = log4net.LogManager.GetLogger(typeof(Program));
+
         [MTAThread]
         static void Main(String[] args)
         {
             try
             {
-                Console.Title = "COPS v6 - The Return Of The Legend : AccServer";
+                Console.Title = "COPS v6 - The Return Of The Legend : AccServer Enhanced";
                 Program.WriteHeader();
 
-                if (!Directory.Exists(Program.RootPath + "\\Debug\\"))
-                    Directory.CreateDirectory(Program.RootPath + "\\Debug\\");
+                if (!Directory.Exists(Program.RootPath + "/Log/"))
+                    Directory.CreateDirectory(Program.RootPath + "/Log/");
 
-                if (!Directory.Exists(Program.RootPath + "\\Log\\"))
-                    Directory.CreateDirectory(Program.RootPath + "\\Log\\");
+                // log4net configuration
+                XmlConfigurator.ConfigureAndWatch(new FileInfo(Program.RootPath + "/AccServer.config"));
 
-                DateTime Time = DateTime.Now.ToUniversalTime();
-                String File = "Acc-" + Time.Year + "-" + Time.Month + "-" + Time.Day + ".log";
-                Debuguer = new StreamWriter(Program.RootPath + "\\Debug\\" + File, true);
-                Debuguer.AutoFlush = true;
-                StartDay = Time.Day;
-
-                Logger = new StreamWriter(Program.RootPath + "\\Log\\AccServer.log", true);
-                Logger.AutoFlush = true;
-
-                Thread TimeThread = new Thread(CheckTime);
-                TimeThread.IsBackground = true;
-                TimeThread.Start();
-
+                NetworkMonitor = new NetworkMonitor(5000);
                 Server.Run();
             }
             catch (Exception Exc) { Console.WriteLine(Exc); }
-            Console.Read();
+
+            while (true)
+                Console.Read();
         }
 
-        public static String RootPath = Environment.CurrentDirectory;
-        public static Encoding Encoding = Encoding.GetEncoding("iso-8859-1");
+        public static readonly String RootPath = Environment.CurrentDirectory;
+        public static Encoding Encoding = Encoding.GetEncoding("Windows-1252");
+
+        public static NetworkMonitor NetworkMonitor = null;
 
         #if DEBUG
         public static Boolean Debug = true;
@@ -70,10 +56,7 @@ namespace COServer
         public static Boolean Debug = false;
         #endif
 
-        private static Assembly Assembly = Assembly.GetExecutingAssembly();
-        private static StreamWriter Debuguer = null;
-        private static StreamWriter Logger = null;
-        private static Int32 StartDay = 0;
+        private static Assembly sAssembly = Assembly.GetExecutingAssembly();
 
         /// <summary>
         /// Write the header of the console. (ASCII Picture)
@@ -82,74 +65,40 @@ namespace COServer
         {
             Console.ForegroundColor = ConsoleColor.DarkGreen;
             Console.WriteLine(@"+-----------------------------------------------------------------------------+");
-            Console.WriteLine(@"|                          _                 _ _                              |");
-            Console.WriteLine(@"|                         | |               (_) |                             |");
-            Console.WriteLine(@"|                         | |     ___   __ _ _| | __                          |");
-            Console.WriteLine(@"|                         | |    / _ \ / _` | | |/ /                          |");
-            Console.WriteLine(@"|                         | |___| (_) | (_| | |   < _                         |");
-            Console.WriteLine(@"|                         \_____/\___/ \__, |_|_|\_(_)                        |");
-            Console.WriteLine(@"|                                       __/ |                                 |");
-            Console.WriteLine(@"|                                      |___/                                  |");
+            Console.WriteLine(@"|   ____ ___  ____  ____     _____ __  __ _   _ _        _  _____ ___  ____   |");
+            Console.WriteLine(@"|  / ___/ _ \|  _ \/ ___|   | ____|  \/  | | | | |      / \|_   _/ _ \|  _ \  |");
+            Console.WriteLine(@"| | |  | | | | |_) \___ \   |  _| | |\/| | | | | |     / _ \ | || | | | |_) | |");
+            Console.WriteLine(@"| | |__| |_| |  __/ ___) |  | |___| |  | | |_| | |___ / ___ \| || |_| |  _ <  |");
+            Console.WriteLine(@"|  \____\___/|_|   |____/   |_____|_|  |_|\___/|_____/_/   \_\_| \___/|_| \_\ |");
             Console.WriteLine(@"|                                                                             |");
-            Console.WriteLine(@"|                   COPS v6 - MsgServer " + Version + "                   |");
-            Console.WriteLine(@"|                          Copyright (C) 2010 - 2012                          |");
+            Console.WriteLine(@"|                                                     by Jean-Philippe Boivin |");
+            Console.WriteLine(@"|                                                                             |");
+            Console.WriteLine(@"|                                                                             |");
+            Console.WriteLine(@"|                   COPS v6 - AccServer Enhanced " + Version + "                  |");
+            Console.WriteLine(@"|                      Copyright (C) 2010-2012, 2014-2015                     |");
             Console.WriteLine(@"|                                                                             |");
             Console.WriteLine(@"+-----------------------------------------------------------------------------+");
             Console.ForegroundColor = ConsoleColor.White;
         }
 
-        private static void CheckTime()
+        /// <summary>
+        /// Stop the server.
+        /// </summary>
+        public static void Exit(bool aRestart)
         {
-            while (true)
+            if (aRestart)
             {
-                DateTime Time = DateTime.Now.ToUniversalTime();
-                if (Time.Day != StartDay)
-                {
-                    String File = "Acc-" + Time.Year + "-" + Time.Month + "-" + Time.Day + ".log";
-                    lock (Debuguer)
-                    {
-                        Debuguer.Flush();
-                        Debuguer.Close();
-
-                        Debuguer = new StreamWriter(Program.RootPath + "\\Debug\\" + File, true);
-                        Debuguer.AutoFlush = true;
-                    }
-                    StartDay = DateTime.Now.Day;
-                }
-                Thread.Sleep(60 * 1000);
+                Process process = new Process();
+                #if _X64
+                process.StartInfo.FileName = RootPath + "/AccServer64.exe";
+                #else
+                process.StartInfo.FileName = RootPath + "/AccServer.exe";
+                #endif
+                process.StartInfo.WorkingDirectory = RootPath;
+                process.Start();
             }
-        }
-
-        public static void Restart()
-        {
-            Debuguer.Close();
-            Debuguer = null;
-
-            Process Process = new Process();
-            Process.StartInfo.FileName = RootPath + "\\AccServer.exe";
-            Process.StartInfo.WorkingDirectory = RootPath;
-            Process.Start();
 
             Environment.Exit(0);
-        }
-
-        /// <summary>
-        /// Write the object in the console and in the debug file.
-        /// </summary>
-        public static void WriteLine(Object Object)
-        {
-            if (Debug)
-                Debuguer.WriteLine(String.Format("[{0:R}] ", DateTime.Now.ToUniversalTime()) + Object.ToString());
-            Console.WriteLine(Object);
-        }
-
-        /// <summary>
-        /// Write the object in the log file.
-        /// </summary>
-        public static void Log(Object Object)
-        {
-            Logger.WriteLine(String.Format("[{0:R}] ", DateTime.Now.ToUniversalTime()) + Object);
-            Console.WriteLine(Object);
         }
 
         /// <summary>
@@ -160,53 +109,10 @@ namespace COServer
             get
             {
                 Version Version = new Version();
-                Version = Assembly.GetName().Version;
+                Version = sAssembly.GetName().Version;
 
-                return String.Format("{0:0000}.{1:0000}.{2:0000}.{3:0000}", Version.Major, Version.Minor, Version.Build, Version.Revision);
+                return String.Format("{0:0}.{1:0}.{2:0}.{3:0}", Version.Major, Version.Minor, Version.Build, Version.Revision);
             }
-        }
-
-        /// <summary>
-        /// Transform the array of bytes in hexadecimal and convert the value in ANSI.
-        /// </summary>
-        public static Object Dump(Byte[] Bytes)
-        {
-            String Hex = "";
-            foreach (Byte b in Bytes)
-                Hex = Hex + b.ToString("X2") + " ";
-            String Out = "";
-            while (Hex.Length != 0)
-            {
-                Int32 SubLength = 0;
-                if (Hex.Length >= 48)
-                    SubLength = 48;
-                else
-                    SubLength = Hex.Length;
-                String SubString = Hex.Substring(0, SubLength);
-                Int32 Remove = SubString.Length;
-                SubString = SubString.PadRight(60, ' ') + StrHexToAnsi(SubString);
-                Hex = Hex.Remove(0, Remove);
-                Out = Out + SubString + "\r\n";
-            }
-            return Out;
-        }
-
-        private static String StrHexToAnsi(String StrHex)
-        {
-            String[] Data = StrHex.Split(new Char[] { ' ' });
-            String Ansi = "";
-            foreach (String tmpHex in Data)
-            {
-                if (tmpHex != "")
-                {
-                    Byte ByteData = Byte.Parse(tmpHex, System.Globalization.NumberStyles.HexNumber);
-                    if ((ByteData >= 32) & (ByteData <= 126))
-                        Ansi = Ansi + ((Char)(ByteData)).ToString();
-                    else
-                        Ansi = Ansi + ".";
-                }
-            }
-            return Ansi;
         }
     }
 }

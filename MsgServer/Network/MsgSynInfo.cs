@@ -1,62 +1,90 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2011 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgSynInfo : Msg
+    [Obsolete]
+    public class MsgSynInfo : Msg
     {
-        public const Int16 Id = _MSG_SYNINFO;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_SYNINFO; } }
 
-        [StructLayout(LayoutKind.Sequential)]
-        public struct MsgInfo
-        {
-            public MsgHeader Header;
-            public Int32 UniqId;
-            public Int32 Donation;
-            public Int32 Fund;
-            public Int32 Members;
-            public String Leader;
-        };
+        //--------------- Internal Members ---------------
+        private UInt32 __SynId = 0;
+        private UInt32 __FealtyId = 0;
+        private UInt32 __SyndicateFund = 0;
+        private UInt32 __SyndicatePopulation = 0;
+        private Byte __Rank = 0;
+        private String __Leader = "";
+        //------------------------------------------------
 
-        public static Byte[] Create(Int32 SenderUID, Syndicate.Info Syndicate)
+        public UInt32 SynId
         {
-            try
+            get { return __SynId; }
+            set { __SynId = value; WriteUInt32(4, value); }
+        }
+
+        public UInt32 FealtyId
+        {
+            get { return __FealtyId; }
+            set { __FealtyId = value; WriteUInt32(8, value); }
+        }
+
+        public UInt32 SyndicateFund
+        {
+            get { return __SyndicateFund; }
+            set { __SyndicateFund = value; WriteUInt32(12, value); }
+        }
+
+        public UInt32 SyndicatePopulation
+        {
+            get { return __SyndicatePopulation; }
+            set { __SyndicatePopulation = value; WriteUInt32(16, value); }
+        }
+
+        public Byte Rank
+        {
+            get { return __Rank; }
+            set { __Rank = value; mBuf[20] = value; }
+        }
+
+        public String Leader
+        {
+            get { return __Leader; }
+            set { __Leader = value; WriteString(21, value, MAX_NAME_SIZE); }
+        }
+
+        public MsgSynInfo(Int32 aMemberId, Syndicate aSyn)
+            : base(40)
+        {
+            Syndicate.Member member = null;
+            if (aSyn != null)
             {
-                Syndicate.Member Sender = null;
-                if (Syndicate != null)
-                {
-                    if (Syndicate.Leader.Name == null || Syndicate.Leader.Name.Length > _MAX_NAMESIZE)
-                        return null;
-
-                    if (Syndicate.Leader.UniqId == SenderUID)
-                        Sender = Syndicate.Leader;
-                    else if (!Syndicate.Members.TryGetValue(SenderUID, out Sender))
-                        return null;
-                }
-
-                Byte[] Out = new Byte[40];
-                fixed (Byte* p = Out)
-                {
-                    *((Int16*)(p + 0)) = (Int16)Out.Length;
-                    *((Int16*)(p + 2)) = (Int16)Id;
-                    if (Syndicate != null)
-                    {
-                        *((Int32*)(p + 4)) = (Int32)Syndicate.UniqId;
-                        *((Int32*)(p + 8)) = (Int32)Sender.Donation;
-                        *((Int32*)(p + 12)) = (Int32)Syndicate.Money;
-                        *((Int32*)(p + 16)) = (Int32)Syndicate.Members.Count + 1;
-                        *((Byte*)(p + 20)) = (Byte)Sender.Rank;
-                        for (Byte i = 0; i < (Byte)Syndicate.Leader.Name.Length; i++)
-                            *((Byte*)(p + 21 + i)) = (Byte)Syndicate.Leader.Name[i];
-                    }
-                }
-                return Out;
+                if (aSyn.Leader.Id == aMemberId)
+                    member = aSyn.Leader;
+                else
+                    member = aSyn.Members[aMemberId];
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+
+            SynId = (UInt32)aSyn.Id;
+            FealtyId = aSyn.FealtySynUID;
+            SyndicateFund = aSyn.Money;
+            SyndicatePopulation = (UInt32)(aSyn.Members.Count + 1);
+            Rank = (Byte)member.Rank;
+            Leader = aSyn.Leader.Name;
         }
     }
 }

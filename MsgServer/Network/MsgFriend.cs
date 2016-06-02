@@ -1,23 +1,31 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2011 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.IO;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using COServer.Entities;
-using AMS.Profile;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgFriend : Msg
+    public class MsgFriend : Msg
     {
-        public const Int16 Id = _MSG_FRIEND;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_FRIEND; } }
+
         public const Int32 _MAX_USERFRIENDSIZE = 50;
 
-        public enum Action
+        public enum Action : byte
         {
-            None = 0,
             FriendApply = 10,
             FriendAccept = 11,
             FriendOnline = 12,
@@ -30,202 +38,190 @@ namespace COServer.Network
             EnemyAdd = 19,			//To client
         };
 
-        public enum Status
+        public enum Status : byte
         {
             Offline = 0,
             Online = 1
         };
 
-        public struct MsgInfo
-        {
-            public MsgHeader Header;
-            public Int32 UniqId;
-            public Byte Action;
-            public Byte IsOnline;
-            public Int64 Unknow1;
-            public Int16 Unknow2;
-            public fixed Byte Name[0x10];
-        };
+        //--------------- Internal Members ---------------
+        private Int32 __FriendId = 0;
+        private Action __Action = (Action)0;
+        private Status __OnlineFlag = Status.Offline;
+        private UInt16 __Unknown = 0;
+        private String __Name = "";
+        //------------------------------------------------
 
-        public static Byte[] Create(Int32 UniqId, String Name, Boolean IsOnline, Action Action)
+        /// <summary>
+        /// Unique ID of the friend / enemy.
+        /// </summary>
+        public Int32 FriendId
         {
-            try
-            {
-                if (Name == null || Name.Length > _MAX_NAMESIZE)
-                    return null;
-
-                Byte[] Out = new Byte[36];
-                fixed (Byte* p = Out)
-                {
-                    *((Int16*)(p + 0)) = (Int16)Out.Length;
-                    *((Int16*)(p + 2)) = (Int16)Id;
-                    *((Int32*)(p + 4)) = (Int32)UniqId;
-                    *((Byte*)(p + 8)) = (Byte)Action;
-                    *((Byte*)(p + 9)) = (Byte)(IsOnline ? Status.Online : Status.Offline);
-                    *((Int64*)(p + 10)) = (Int64)0x00; //Unknow
-                    *((Int16*)(p + 18)) = (Int16)0x00; //Unknow
-                    for (Byte i = 0; i < Name.Length; i++)
-                        *((Byte*)(p + 20 + i)) = (Byte)Name[i];
-                }
-                return Out;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+            get { return __FriendId; }
+            set { __FriendId = value; WriteInt32(4, value); }
         }
 
-        public static void Process(Client Client, Byte[] Buffer)
+        /// <summary>
+        /// Action ID.
+        /// </summary>
+        public Action _Action
         {
-            try
+            get { return __Action; }
+            set { __Action = value; mBuf[8] = (Byte)value; }
+        }
+
+        public Status OnlineFlag
+        {
+            get { return __OnlineFlag; }
+            set { __OnlineFlag = value; mBuf[9] = (Byte)value; }
+        }
+
+        public String Name
+        {
+            get { return __Name; }
+            set { __Name = value; WriteString(12, value, MAX_NAME_SIZE); }
+        }
+
+        /// <summary>
+        /// Create a message object from the specified buffer.
+        /// </summary>
+        /// <param name="aBuf">The buffer containing the message.</param>
+        /// <param name="aIndex">The index where the message is starting in the buffer.</param>
+        /// <param name="aLength">The length of the message.</param>
+        internal MsgFriend(Byte[] aBuf, int aIndex, int aLength)
+            : base(aBuf, aIndex, aLength)
+        {
+            __FriendId = BitConverter.ToInt32(mBuf, 4);
+            __Action = (Action)mBuf[8];
+            __OnlineFlag = (Status)mBuf[9];
+            __Unknown = BitConverter.ToUInt16(mBuf, 10);
+            __Name = Program.Encoding.GetString(mBuf, 12, MAX_NAME_SIZE).Trim('\0');
+        }
+
+        public MsgFriend(Int32 aFriendId, String aName, Status aOnlineFlag, Action aAction)
+            : base(28)
+        {
+            FriendId = aFriendId;
+            _Action = aAction;
+            OnlineFlag = aOnlineFlag;
+            Name = aName;
+        }
+
+        /// <summary>
+        /// Process the message for the specified client.
+        /// </summary>
+        /// <param name="aClient">The client who sent the message.</param>
+        public override void Process(Client aClient)
+        {
+            Player player = aClient.Player;
+
+            switch (_Action)
             {
-                if (Client == null || Buffer == null || Client.User == null)
-                    return;
+                case Action.GetInfo:
+                    {
+                        Player friend = null;
+                        if (!World.AllPlayers.TryGetValue(FriendId, out friend))
+                            return;
 
-                Int16 MsgLength = (Int16)((Buffer[0x01] << 8) + Buffer[0x00]);
-                Int16 MsgId = (Int16)((Buffer[0x03] << 8) + Buffer[0x02]);
-                Int32 UniqId = (Int32)((Buffer[0x07] << 24) + (Buffer[0x06] << 16) + (Buffer[0x05] << 8) + Buffer[0x04]);
-                Action Action = (Action)Buffer[0x08];
-                Byte IsOnline = (Byte)Buffer[0x09];
+                        player.Send(new MsgFriend(friend.UniqId, friend.Name, Status.Online, Action.FriendOnline));
+                        break;
+                    }
+                case Action.EnemyAdd:
+                    {
+                        Player enemy = null;
+                        if (!World.AllPlayers.TryGetValue(FriendId, out enemy))
+                            return;
 
-                Player Player = Client.User;
-
-                switch (Action)
-                {
-                    case Action.GetInfo:
+                        player.Send(new MsgFriend(enemy.UniqId, enemy.Name, Status.Online, Action.EnemyOnline));
+                        break;
+                    }
+                case Action.EnemyDel:
+                    {
+                        if (player.Enemies.ContainsKey(FriendId))
                         {
-                            Player Target = null;
-                            if (!World.AllPlayers.TryGetValue(UniqId, out Target))
-                                return;
-
-                            Player.Send(MsgFriend.Create(Target.UniqId, Target.Name, true, Action.FriendOnline));
-                            break;
+                            player.Enemies.Remove(FriendId);
+                            player.Send(new MsgFriend(FriendId, "", Status.Offline, Action.EnemyDel));
                         }
-                    case Action.EnemyAdd:
+                        break;
+                    }
+                case Action.FriendBreak:
+                    {
+                        if (!player.Friends.ContainsKey(FriendId))
                         {
-                            Player Target = null;
-                            if (!World.AllPlayers.TryGetValue(UniqId, out Target))
-                                return;
-
-                            Player.Send(MsgFriend.Create(Target.UniqId, Target.Name, true, Action.EnemyOnline));
-                            break;
+                            player.Send(new MsgFriend(FriendId, "", Status.Online, Action.FriendBreak));
+                            return;
                         }
-                    case Action.EnemyDel:
+
+                        String name = player.Friends[FriendId];
+
+                        player.Friends.Remove(FriendId);
+                        player.Send(new MsgFriend(FriendId, "", Status.Online, Action.FriendBreak));
+
+                        Player friend = null;
+                        if (World.AllPlayers.TryGetValue(FriendId, out friend))
                         {
-                            if (Player.Enemies.ContainsKey(UniqId))
-                            {
-                                Player.Enemies.Remove(UniqId);
-                                Player.Send(MsgFriend.Create(UniqId, "", true, Action.EnemyDel));
-                            }
-                            break;
+                            friend.Friends.Remove(player.UniqId);
+                            friend.Send(new MsgFriend(player.UniqId, "", Status.Online, Action.FriendBreak));
                         }
-                    case Action.FriendBreak:
+                        else
+                            Database.BreakFriendship(player, name);
+
+                        break;
+                    }
+                case Action.FriendApply:
+                    {
+                        Player friend = null;
+                        if (!World.AllPlayers.TryGetValue(FriendId, out friend))
+                            return;
+
+                        if (!player.IsAlive())
                         {
-                            if (!Player.Friends.ContainsKey(UniqId))
-                            {
-                                Player.Send(MsgFriend.Create(UniqId, "", true, Action.FriendBreak));
-                                return;
-                            }
-                            String Name = Player.Friends[UniqId];
-
-                            Player.Friends.Remove(UniqId);
-                            Player.Send(MsgFriend.Create(UniqId, "", true, Action.FriendBreak));
-
-                            Player Friend = null;
-                            if (World.AllPlayers.TryGetValue(UniqId, out Friend))
-                            {
-                                Friend.Friends.Remove(Player.UniqId);
-                                Friend.Send(MsgFriend.Create(Player.UniqId, "", true, Action.FriendBreak));
-                            }
-                            else
-                            {
-                                if (!File.Exists(Program.RootPath + "\\Characters\\" + Name + ".chr"))
-                                    return;
-
-                                Xml AMSXml = new Xml(Program.RootPath + "\\Characters\\" + Name + ".chr");
-                                AMSXml.RootName = "Character";
-
-                                String OldFriends = AMSXml.GetValue("Informations", "Friends", "");
-                                String NewFriends = "";
-                                String[] Parts = OldFriends.Split(',');
-                                foreach (String StrFriend in Parts)
-                                {
-                                    String[] Info = StrFriend.Split(':');
-                                    if (Info.Length < 2)
-                                        continue;
-
-                                    Int32 FriendUID = 0;
-                                    if (!Int32.TryParse(Info[0], out FriendUID))
-                                        continue;
-
-                                    if (FriendUID == Player.UniqId)
-                                        continue;
-
-                                    NewFriends += StrFriend + ",";
-                                }
-                                Parts = null;
-
-                                if (NewFriends != null && NewFriends != "")
-                                    NewFriends = NewFriends.Substring(0, NewFriends.Length - 1);
-
-                                using (AMSXml.Buffer()) { AMSXml.SetValue("Informations", "Friends", NewFriends); }
-                                AMSXml = null;
-                            }
-                            break;
+                            player.SendSysMsg(StrRes.STR_DIE);
+                            return;
                         }
-                    case Action.FriendApply:
+
+                        if (player.Map != friend.Map)
+                            return;
+
+                        if (player.Friends.ContainsKey(friend.UniqId))
                         {
-                            Player Target = null;
-                            if (!World.AllPlayers.TryGetValue(UniqId, out Target))
-                                return;
-
-                            if (!Player.IsAlive())
-                            {
-                                Player.SendSysMsg(Client.GetStr("STR_DIE"));
-                                return;
-                            }
-
-                            if (Player.Map != Target.Map)
-                                return;
-
-                            if (Player.Friends.ContainsKey(Target.UniqId))
-                            {
-                                Player.SendSysMsg(String.Format(Client.GetStr("STR_FRIEND_ALREADY"), Target.Name));
-                                return;
-                            }
-
-                            if (Player.Friends.Count >= _MAX_USERFRIENDSIZE)
-                            {
-                                Player.SendSysMsg(Client.GetStr("STR_FRIEND_FULL"));
-                                return;
-                            }
-
-                            if (Target.Friends.Count >= _MAX_USERFRIENDSIZE)
-                                return;
-
-                            if (Target.FriendRequest != Player.UniqId)
-                            {
-                                Player.FriendRequest = Target.UniqId;
-                                Target.Send(MsgFriend.Create(Player.UniqId, Player.Name, true, Action.FriendApply));
-                            }
-                            else
-                            {
-                                if (!Player.Friends.ContainsKey(Target.UniqId))
-                                    Player.Friends.Add(Target.UniqId, Target.Name);
-
-                                if (!Target.Friends.ContainsKey(Player.UniqId))
-                                    Target.Friends.Add(Player.UniqId, Player.Name);
-
-                                Player.Send(MsgFriend.Create(Target.UniqId, Target.Name, true, Action.FriendAccept));
-                                Target.Send(MsgFriend.Create(Player.UniqId, Player.Name, true, Action.FriendAccept));
-                            }
-                            break;
+                            player.SendSysMsg(StrRes.STR_FRIEND_ALREADY, friend.Name);
+                            return;
                         }
-                    default:
+
+                        if (player.Friends.Count >= _MAX_USERFRIENDSIZE)
                         {
-                            Console.WriteLine("Msg[{0}], Action[{1}] not implemented yet!", MsgId, (Int16)Action);
-                            break;
+                            player.SendSysMsg(StrRes.STR_FRIEND_FULL);
+                            return;
                         }
-                }
+
+                        if (friend.Friends.Count >= _MAX_USERFRIENDSIZE)
+                            return;
+
+                        if (friend.FriendRequest != player.UniqId)
+                        {
+                            player.FriendRequest = friend.UniqId;
+                            friend.Send(new MsgFriend(player.UniqId, player.Name, Status.Online, Action.FriendApply));
+                        }
+                        else
+                        {
+                            if (!player.Friends.ContainsKey(friend.UniqId))
+                                player.Friends.Add(friend.UniqId, friend.Name);
+
+                            if (!friend.Friends.ContainsKey(player.UniqId))
+                                friend.Friends.Add(player.UniqId, player.Name);
+
+                            player.Send(new MsgFriend(friend.UniqId, friend.Name, Status.Online, Action.FriendAccept));
+                            friend.Send(new MsgFriend(player.UniqId, player.Name, Status.Online, Action.FriendAccept));
+                        }
+                        break;
+                    }
+                default:
+                    {
+                        sLogger.Error("Action {0} is not implemented for MsgFriend.", (Byte)_Action);
+                        break;
+                    }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
         }
     }
 }

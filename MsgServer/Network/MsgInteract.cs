@@ -1,21 +1,29 @@
-// * Created by Jean-Philippe Boivin
-// * Copyright © 2011
-// * Logik. Project
+// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2011 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using COServer.Entities;
-using CO2_CORE_DLL.IO;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgInteract : Msg
+    public class MsgInteract : Msg
     {
-        public const Int16 Id = _MSG_INTERACT;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_INTERACT; } }
 
         public enum Action
         {
-            None = 0,
             Steal = 1, //Works?
             Attack = 2, //Attack Miss -> Param = 0
             Heal = 3, //Works?
@@ -44,395 +52,428 @@ namespace COServer.Network
             ReflectMagic = 26,			
         };
 
-        [StructLayout(LayoutKind.Sequential)]
-        public struct MsgInfo
+        //--------------- Internal Members ---------------
+        private Int32 __Timestamp = 0;
+        private Int32 __Sender = 0;
+        private Int32 __Target = 0;
+        private UInt16 __PosX = 0;
+        private UInt16 __PosY = 0;
+        private Action __Action = (Action)0;
+        private UInt32 __Data = 0;
+        //------------------------------------------------
+
+        public Int32 Timestamp
         {
-            public MsgHeader Header;
-            public Int32 Timestamp;
-            public Int32 SenderUID;
-            public Int32 TargetUID;
-            public UInt16 TargetX;
-            public UInt16 TargetY;
-            public Int32 Action;
-            public Int32 Param; //{ Data } || { MagicType, MagicLevel }
-            public Int32 Unknow;
-        };
-
-        public static Byte[] Create(Entity Sender, Entity Target, Int32 Param, Action Action)
-        {
-            try
-            {
-                MsgInfo* pMsg = stackalloc MsgInfo[1];
-                pMsg->Header.Length = (Int16)sizeof(MsgInfo);
-                pMsg->Header.Type = Id;
-
-                pMsg->Timestamp = Environment.TickCount;
-                pMsg->SenderUID = Sender.UniqId;
-                if (Target != null)
-                {
-                    pMsg->TargetUID = Target.UniqId;
-                    pMsg->TargetX = Target.X;
-                    pMsg->TargetY = Target.Y;
-                }
-                pMsg->Action = (Int32)Action;
-                pMsg->Param = Param;
-
-                Byte[] Out = new Byte[pMsg->Header.Length];
-                Marshal.Copy((IntPtr)pMsg, Out, 0, Out.Length);
-
-                return Out;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+            get { return __Timestamp; }
+            set { __Timestamp = value; WriteInt32(4, value); }
         }
 
-        public static void Process(Client Client, Byte[] Buffer)
+        public Int32 Sender
         {
-            try
+            get { return __Sender; }
+            set { __Sender = value; WriteInt32(8, value); }
+        }
+
+        public Int32 Target
+        {
+            get { return __Target; }
+            set { __Target = value; WriteInt32(12, value); }
+        }
+
+        public UInt16 PosX
+        {
+            get { return __PosX; }
+            set { __PosX = value; WriteUInt16(16, value); }
+        }
+
+        public UInt16 PosY
+        {
+            get { return __PosY; }
+            set { __PosY = value; WriteUInt16(18, value); }
+        }
+
+        /// <summary>
+        /// Action ID.
+        /// </summary>
+        public Action _Action
+        {
+            get { return __Action; }
+            set { __Action = value; WriteUInt32(20, (UInt32)value); }
+        }
+
+        public UInt32 Data
+        {
+            get { return __Data; }
+            set { __Data = value; WriteUInt32(24, value); }
+        }
+
+        /// <summary>
+        /// Create a message object from the specified buffer.
+        /// </summary>
+        /// <param name="aBuf">The buffer containing the message.</param>
+        /// <param name="aIndex">The index where the message is starting in the buffer.</param>
+        /// <param name="aLength">The length of the message.</param>
+        internal MsgInteract(Byte[] aBuf, int aIndex, int aLength)
+            : base(aBuf, aIndex, aLength)
+        {
+            __Timestamp = BitConverter.ToInt32(mBuf, 4);
+            __Sender = BitConverter.ToInt32(mBuf, 8);
+            __Target = BitConverter.ToInt32(mBuf, 12);
+            __PosX = BitConverter.ToUInt16(mBuf, 16);
+            __PosY = BitConverter.ToUInt16(mBuf, 18);
+            __Action = (Action)BitConverter.ToUInt32(mBuf, 20);
+            __Data = BitConverter.ToUInt32(mBuf, 24);
+        }
+
+        public MsgInteract(Entity aSender, Entity aTarget, UInt32 aData, Action aAction)
+            : base(32)
+        {
+            Timestamp = Environment.TickCount;
+            Sender = aSender.UniqId;
+            if (aTarget != null)
             {
-                if (Client == null || Buffer == null || Client.User == null)
-                    return;
-
-                Int16 MsgLength = (Int16)((Buffer[0x01] << 8) + Buffer[0x00]);
-                Int16 MsgId = (Int16)((Buffer[0x03] << 8) + Buffer[0x02]);
-                Int32 Timestamp = (Int32)((Buffer[0x07] << 24) + (Buffer[0x06] << 16) + (Buffer[0x05] << 8) + Buffer[0x04]);
-                Int32 SenderUID = (Int32)((Buffer[0x0B] << 24) + (Buffer[0x0A] << 16) + (Buffer[0x09] << 8) + Buffer[0x08]);
-                Int32 TargetUID = (Int32)((Buffer[0x0F] << 24) + (Buffer[0x0E] << 16) + (Buffer[0x0D] << 8) + Buffer[0x0C]);
-                UInt16 TargetX = (UInt16)((Buffer[0x11] << 8) + Buffer[0x10]);
-                UInt16 TargetY = (UInt16)((Buffer[0x13] << 8) + Buffer[0x12]);
-                Action Action = (Action)((Buffer[0x17] << 24) + (Buffer[0x16] << 16) + (Buffer[0x15] << 8) + Buffer[0x14]);
-                Int32 Param = (Int32)((Buffer[0x1B] << 24) + (Buffer[0x1A] << 16) + (Buffer[0x19] << 8) + Buffer[0x18]);
-
-                Int32 Interval = 0;
-                Player Player = Client.User;
-                Interval = Timestamp - Player.LastAttackTick;
-                Player.LastAttackTick = Timestamp;
-                Player.MagicIntone = false;
-
-                if (Interval / 100 == Player.PrevAtkInterval / 100)
-                    Player.BotCheck++;
-                else
-                {
-                    Player.PrevAtkInterval = Interval;
-                    Player.BotCheck = 0;
-                }
-
-                switch (Action)
-                {
-                    case Action.Attack:
-                        {
-                            Player.Action = (Int16)MsgAction.Emotion.StandBy;
-                            if (Player.UniqId != SenderUID)
-                                return;
-
-                            if (!MyMath.CanSee(Player.X, Player.Y, TargetX, TargetY, Player.AtkRange))
-                                return;
-
-                            Player.TargetUID = TargetUID;
-                            Player.AtkType = (Int32)Action;
-                            Player.IsInBattle = true;
-                            Player.MagicType = -1;
-                            Player.MagicLevel = 0;
-
-                            if (Entity.IsPlayer(TargetUID))
-                            {
-                                Player Target = null;
-                                if (!World.AllPlayers.TryGetValue(TargetUID, out Target))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-
-                                if (!MyMath.CanSee(Player.X, Player.Y, Target.X, Target.Y, Player.AtkRange))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-                                Battle.PvP(Player, Target);
-                            }
-                            else if (Entity.IsMonster(TargetUID))
-                            {
-                                Monster Target = null;
-                                if (!World.AllMonsters.TryGetValue(TargetUID, out Target))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-
-                                if (!MyMath.CanSee(Player.X, Player.Y, Target.X, Target.Y, Player.AtkRange))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-                                Battle.PvM(Player, Target);
-                            }
-                            else if (Entity.IsTerrainNPC(TargetUID))
-                            {
-                                TerrainNPC Target = null;
-                                if (!World.AllTerrainNPCs.TryGetValue(TargetUID, out Target))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-
-                                if (!MyMath.CanSee(Player.X, Player.Y, Target.X, Target.Y, Player.AtkRange))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-                                Battle.PvE(Player, Target);
-                            }
-                            else
-                            {
-                                Player.IsInBattle = false;
-                                return;
-                            }
-                            break;
-                        }
-                    case Action.Court:
-                        {
-                            if (Player.UniqId != SenderUID)
-                                return;
-
-                            Player Target = null;
-                            if (!World.AllPlayers.TryGetValue(TargetUID, out Target))
-                                return;
-
-                            if (Target.Map != Player.Map)
-                                return;
-
-                            if (!MyMath.CanSee(Player.X, Player.Y, Target.X, Target.Y, 17))
-                                return;
-
-                            if (!(Player.Look % 10 < 3 && Target.Look % 10 > 2) && !(Player.Look % 10 > 2 && Target.Look % 10 < 3))
-                                return;
-
-                            if (Target.Spouse != "Non" && Target.Spouse != "None" && Target.Spouse != "")
-                                return;
-
-                            Target.Send(Buffer);
-                            break;
-                        }
-                    case Action.Marry:
-                        {
-                            if (Player.UniqId != SenderUID)
-                                return;
-
-                            Player Target = null;
-                            if (!World.AllPlayers.TryGetValue(TargetUID, out Target))
-                                return;
-
-                            if (Target.Map != Player.Map)
-                                return;
-
-                            if (!MyMath.CanSee(Player.X, Player.Y, Target.X, Target.Y, 17))
-                                return;
-
-                            if (!(Player.Look % 10 < 3 && Target.Look % 10 > 2) && !(Player.Look % 10 > 2 && Target.Look % 10 < 3))
-                                return;
-
-                            if (Target.Spouse != "Non" && Target.Spouse != "None" && Target.Spouse != "")
-                                return;
-
-                            Player.Spouse = Target.Name;
-                            Player.Send(MsgName.Create(Player.UniqId, Player.Spouse, MsgName.Action.Spouse));
-
-                            Target.Spouse = Player.Name;
-                            Target.Send(MsgName.Create(Target.UniqId, Target.Spouse, MsgName.Action.Spouse));
-
-                            World.BroadcastMapMsg(Player.Map, MsgName.Create((Player.X | Player.Y << 16), "1122", MsgName.Action.Fireworks));
-                            World.BroadcastMsg(MsgTalk.Create("SYSTEM", "ALLUSERS", String.Format(Client.GetStr("STR_MARRY"), Player.Name, Target.Name), MsgTalk.Channel.GM, 0xFF0000));
-                            break;
-                        }
-                    case Action.MagicAttack:
-                        {
-                            Player.Action = (Int16)MsgAction.Emotion.StandBy;
-
-                            MagicType.Entry MagicInfo = new MagicType.Entry();
-                            UInt16 MagicType = (UInt16)(Param);
-
-                            //uint16_t encrypt_skilllevel(uint8_t p_skilllevel, int p_timestamp)
-                            //{
-                            //    return (uint16_t)((p_skilllevel | ((p_timstamp << 8) & 0xff00)) ^ 0x3721);
-                            //}
-
-                            if (Player.UniqId != SenderUID)
-                                return;
-
-                            TargetUID = (Int32)((((UInt32)TargetUID & 0xffffe000) >> 13) | (((UInt32)TargetUID & 0x1fff) << 19));
-                            TargetUID ^= 0x5F2D2463;
-                            TargetUID ^= SenderUID;
-                            TargetUID -= 0x746F4AE6;
-
-                            TargetX ^= (UInt16)((UInt32)SenderUID & 0xffff);
-                            TargetX ^= 0x2ED6;
-                            TargetX = (UInt16)((TargetX << 1) | ((TargetX & 0x8000) >> 15));
-                            TargetX -= 0x22EE;
-
-                            TargetY ^= (UInt16)((UInt32)SenderUID & 0xffff);
-                            TargetY ^= 0xB99B;
-                            TargetY = (UInt16)((TargetY << 5) | ((TargetY & 0xF800) >> 11));
-                            TargetY -= 0x8922;
-
-                            MagicType ^= (UInt16)0x915D;
-                            MagicType ^= (UInt16)SenderUID;
-                            MagicType = (UInt16)(MagicType << 3 | MagicType >> 13);
-                            MagicType -= (UInt16)0xEB42;
-
-                            Magic Magic = Player.GetMagicByType((Int16)MagicType);
-                            if (Magic == null)
-                                return;
-
-                            if (!Database2.AllMagics.TryGetValue((Magic.Type * 10) + Magic.Level, out MagicInfo))
-                                return;
-
-                            Player.TargetUID = TargetUID;
-                            Player.AtkType = (Int32)Action;
-                            Player.IsInBattle = true;
-                            Player.MagicType = (Int16)MagicType;
-                            Player.MagicLevel = Magic.Level;
-
-                            if (TargetUID == 0)
-                            {
-                                Battle.Magic.Use(Player, null, TargetX, TargetY);
-                                if (Player.Map != 1039)
-                                    Player.IsInBattle = false;
-                                return;
-                            }
-
-                            if (Entity.IsPlayer(TargetUID))
-                            {
-                                Player Target = null;
-                                if (!World.AllPlayers.TryGetValue(TargetUID, out Target))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-
-                                if (!MyMath.CanSee(Player.X, Player.Y, Target.X, Target.Y, (Int32)MagicInfo.Distance))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-                                Battle.Magic.Use(Player, Target, TargetX, TargetY);
-                            }
-                            else if (Entity.IsMonster(TargetUID))
-                            {
-                                Monster Target = null;
-                                if (!World.AllMonsters.TryGetValue(TargetUID, out Target))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-
-                                if (!MyMath.CanSee(Player.X, Player.Y, Target.X, Target.Y, (Int32)MagicInfo.Distance))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-                                Battle.Magic.Use(Player, Target, TargetX, TargetY);
-                            }
-                            else if (Entity.IsTerrainNPC(TargetUID))
-                            {
-                                TerrainNPC Target = null;
-                                if (!World.AllTerrainNPCs.TryGetValue(TargetUID, out Target))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-
-                                if (!MyMath.CanSee(Player.X, Player.Y, Target.X, Target.Y, (Int32)MagicInfo.Distance))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-                                Battle.Magic.Use(Player, Target, TargetX, TargetY);
-                            }
-
-                            if (Player.Map != 1039)
-                                Player.IsInBattle = false;
-                            break;
-                        }
-                    case Action.Shoot:
-                        {
-                            Player.Action = (Int16)MsgAction.Emotion.StandBy;
-                            if (Player.UniqId != SenderUID)
-                                return;
-
-                            Player.TargetUID = TargetUID;
-                            Player.AtkType = (Int32)Action;
-                            Player.IsInBattle = true;
-                            Player.MagicType = -1;
-                            Player.MagicLevel = 0;
-
-                            if (Entity.IsPlayer(TargetUID))
-                            {
-                                Player Target = null;
-                                if (!World.AllPlayers.TryGetValue(TargetUID, out Target))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-
-                                if (!MyMath.CanSee(Player.X, Player.Y, Target.X, Target.Y, Player.AtkRange))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-                                Battle.PvP(Player, Target);
-                            }
-                            else if (Entity.IsMonster(TargetUID))
-                            {
-                                Monster Target = null;
-                                if (!World.AllMonsters.TryGetValue(TargetUID, out Target))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-
-                                if (!MyMath.CanSee(Player.X, Player.Y, Target.X, Target.Y, Player.AtkRange))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-                                Battle.PvM(Player, Target);
-                            }
-                            else if (Entity.IsTerrainNPC(TargetUID))
-                            {
-                                TerrainNPC Target = null;
-                                if (!World.AllTerrainNPCs.TryGetValue(TargetUID, out Target))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-
-                                if (!MyMath.CanSee(Player.X, Player.Y, Target.X, Target.Y, Player.AtkRange))
-                                {
-                                    Player.IsInBattle = false;
-                                    return;
-                                }
-                                Battle.PvE(Player, Target);
-                            }
-                            else
-                            {
-                                Player.IsInBattle = false;
-                                return;
-                            }
-                            break;
-                        }
-                    case (Action)30:
-                        {
-                            //GouDeSaintNuage
-                            Player.Send(MsgInteract.Create(Player, null, 200, (Action)30));
-                            break;
-                        }
-                    default:
-                        {
-                            Console.WriteLine("Msg[{0}], Action[{1}] not implemented yet!", MsgId, (Int16)Action);
-                            break;
-                        }
-                }
+                Target = aTarget.UniqId;
+                PosX = aTarget.X;
+                PosY = aTarget.Y;
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
+            _Action = aAction;
+            Data = aData;
+        }
+
+        public MsgInteract(Entity aSender, Entity aTarget, Int32 aData, Action aAction)
+            : base(32)
+        {
+            Timestamp = Environment.TickCount;
+            Sender = aSender.UniqId;
+            if (aTarget != null)
+            {
+                Target = aTarget.UniqId;
+                PosX = aTarget.X;
+                PosY = aTarget.Y;
+            }
+            _Action = aAction;
+            Data = BitConverter.ToUInt32(BitConverter.GetBytes(aData), 0);
+        }
+
+        /// <summary>
+        /// Process the message for the specified client.
+        /// </summary>
+        /// <param name="aClient">The client who sent the message.</param>
+        public override void Process(Client aClient)
+        {
+            Player player = aClient.Player;
+
+            int interval = Timestamp - player.LastAttackTick;
+
+            player.LastAttackTick = Timestamp;
+            player.MagicIntone = false;
+
+            switch (_Action)
+            {
+                case Action.Attack:
+                    {
+                        player.Action = Emotion.StandBy;
+                        if (player.UniqId != Sender)
+                            return;
+
+                        if (!MyMath.CanSee(player.X, player.Y, PosX, PosY, player.AtkRange))
+                            return;
+
+                        player.TargetUID = Target;
+                        player.AtkType = (Int32)_Action;
+                        player.IsInBattle = true;
+                        player.MagicType = 0;
+                        player.MagicLevel = 0;
+
+                        if (Entity.IsPlayer(Target))
+                        {
+                            Player target = null;
+                            if (!World.AllPlayers.TryGetValue(Target, out target))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+
+                            if (!MyMath.CanSee(player.X, player.Y, target.X, target.Y, player.AtkRange))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+                            Battle.PvP(player, target);
+                        }
+                        else if (Entity.IsMonster(Target))
+                        {
+                            Monster target = null;
+                            if (!World.AllMonsters.TryGetValue(Target, out target))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+
+                            if (!MyMath.CanSee(player.X, player.Y, target.X, target.Y, player.AtkRange))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+                            Battle.PvM(player, target);
+                        }
+                        else if (Entity.IsTerrainNPC(Target))
+                        {
+                            TerrainNPC target = null;
+                            if (!World.AllTerrainNPCs.TryGetValue(Target, out target))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+
+                            if (!MyMath.CanSee(player.X, player.Y, target.X, target.Y, player.AtkRange))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+                            Battle.PvE(player, target);
+                        }
+                        else
+                        {
+                            player.IsInBattle = false;
+                            return;
+                        }
+                        break;
+                    }
+                case Action.Court:
+                    {
+                        if (player.UniqId != Sender)
+                            return;
+
+                        Player target = null;
+                        if (!World.AllPlayers.TryGetValue(Target, out target))
+                            return;
+
+                        if (target.Map != player.Map)
+                            return;
+
+                        if (!MyMath.CanSee(player.X, player.Y, target.X, target.Y, 17))
+                            return;
+
+                        if (!(player.Look % 10 < 3 && target.Look % 10 > 2) && !(player.Look % 10 > 2 && target.Look % 10 < 3))
+                            return;
+
+                        if (target.Mate != "Non" && target.Mate != "None" && target.Mate != "")
+                            return;
+
+                        target.Send(this);
+                        break;
+                    }
+                case Action.Marry:
+                    {
+                        if (player.UniqId != Sender)
+                            return;
+
+                        Player target = null;
+                        if (!World.AllPlayers.TryGetValue(Target, out target))
+                            return;
+
+                        if (target.Map != player.Map)
+                            return;
+
+                        if (!MyMath.CanSee(player.X, player.Y, target.X, target.Y, 17))
+                            return;
+
+                        if (!(player.Look % 10 < 3 && target.Look % 10 > 2) && !(player.Look % 10 > 2 && target.Look % 10 < 3))
+                            return;
+
+                        if (target.Mate != "Non" && target.Mate != "None" && target.Mate != "")
+                            return;
+
+                        player.Mate = target.Name;
+                        target.Mate = player.Name;
+
+                        World.BroadcastMapMsg(player, new MsgName((player.X | player.Y << 16), "1122", MsgName.NameAct.Fireworks));
+                        World.BroadcastMsg(new MsgTalk("SYSTEM", "ALLUSERS", String.Format(StrRes.STR_MARRY, player.Name, target.Name), Channel.GM, Color.Red));
+                        break;
+                    }
+                case Action.MagicAttack:
+                    {
+                        player.Action = Emotion.StandBy;
+
+                        Magic.Info MagicInfo = new Magic.Info();
+                        UInt16 MagicType = (UInt16)(Data);
+
+                        //uint16_t encrypt_skilllevel(uint8_t p_skilllevel, int p_timestamp)
+                        //{
+                        //    return (uint16_t)((p_skilllevel | ((p_timstamp << 8) & 0xff00)) ^ 0x3721);
+                        //}
+
+                        if (player.UniqId != Sender)
+                            return;
+
+                        Target = (Int32)((((UInt32)Target & 0xffffe000) >> 13) | (((UInt32)Target & 0x1fff) << 19));
+                        Target ^= 0x5F2D2463;
+                        Target ^= Sender;
+                        Target -= 0x746F4AE6;
+
+                        PosX ^= (UInt16)((UInt32)Sender & 0xffff);
+                        PosX ^= 0x2ED6;
+                        PosX = (UInt16)((PosX << 1) | ((PosX & 0x8000) >> 15));
+                        PosX -= 0x22EE;
+
+                        PosY ^= (UInt16)((UInt32)Sender & 0xffff);
+                        PosY ^= 0xB99B;
+                        PosY = (UInt16)((PosY << 5) | ((PosY & 0xF800) >> 11));
+                        PosY -= 0x8922;
+
+                        MagicType ^= (UInt16)0x915D;
+                        MagicType ^= (UInt16)Sender;
+                        MagicType = (UInt16)(MagicType << 3 | MagicType >> 13);
+                        MagicType -= (UInt16)0xEB42;
+
+                        Magic Magic = player.GetMagicByType(MagicType);
+                        if (Magic == null)
+                            return;
+
+                        if (!Database.AllMagics.TryGetValue((Magic.Type * 10) + Magic.Level, out MagicInfo))
+                            return;
+
+                        player.TargetUID = Target;
+                        player.AtkType = (Int32)_Action;
+                        player.IsInBattle = true;
+                        player.MagicType = MagicType;
+                        player.MagicLevel = Magic.Level;
+
+                        if (Target == 0)
+                        {
+                            Battle.UseMagic(player, null, PosX, PosY);
+                            if (player.Map.Id != 1039)
+                                player.IsInBattle = false;
+                            return;
+                        }
+
+                        if (Entity.IsPlayer(Target))
+                        {
+                            Player target = null;
+                            if (!World.AllPlayers.TryGetValue(Target, out target))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+
+                            if (!MyMath.CanSee(player.X, player.Y, target.X, target.Y, (Int32)MagicInfo.Distance))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+                            Battle.UseMagic(player, target, PosX, PosY);
+                        }
+                        else if (Entity.IsMonster(Target))
+                        {
+                            Monster target = null;
+                            if (!World.AllMonsters.TryGetValue(Target, out target))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+
+                            if (!MyMath.CanSee(player.X, player.Y, target.X, target.Y, (Int32)MagicInfo.Distance))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+                            Battle.UseMagic(player, target, PosX, PosY);
+                        }
+                        else if (Entity.IsTerrainNPC(Target))
+                        {
+                            TerrainNPC target = null;
+                            if (!World.AllTerrainNPCs.TryGetValue(Target, out target))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+
+                            if (!MyMath.CanSee(player.X, player.Y, target.X, target.Y, (Int32)MagicInfo.Distance))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+                            Battle.UseMagic(player, target, PosX, PosY);
+                        }
+
+                        if (player.Map.Id != 1039)
+                            player.IsInBattle = false;
+                        break;
+                    }
+                case Action.Shoot:
+                    {
+                        player.Action = Emotion.StandBy;
+                        if (player.UniqId != Sender)
+                            return;
+
+                        player.TargetUID = Target;
+                        player.AtkType = (Int32)_Action;
+                        player.IsInBattle = true;
+                        player.MagicType = 0;
+                        player.MagicLevel = 0;
+
+                        if (Entity.IsPlayer(Target))
+                        {
+                            Player target = null;
+                            if (!World.AllPlayers.TryGetValue(Target, out target))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+
+                            if (!MyMath.CanSee(player.X, player.Y, target.X, target.Y, player.AtkRange))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+                            Battle.PvP(player, target);
+                        }
+                        else if (Entity.IsMonster(Target))
+                        {
+                            Monster target = null;
+                            if (!World.AllMonsters.TryGetValue(Target, out target))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+
+                            if (!MyMath.CanSee(player.X, player.Y, target.X, target.Y, player.AtkRange))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+                            Battle.PvM(player, target);
+                        }
+                        else if (Entity.IsTerrainNPC(Target))
+                        {
+                            TerrainNPC target = null;
+                            if (!World.AllTerrainNPCs.TryGetValue(Target, out target))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+
+                            if (!MyMath.CanSee(player.X, player.Y, target.X, target.Y, player.AtkRange))
+                            {
+                                player.IsInBattle = false;
+                                return;
+                            }
+                            Battle.PvE(player, target);
+                        }
+                        else
+                        {
+                            player.IsInBattle = false;
+                            return;
+                        }
+                        break;
+                    }
+                default:
+                    {
+                        sLogger.Error("Action {0} is not implemented for MsgInteract.", (UInt32)_Action);
+                        break;
+                    }
+            }
         }
     }
 }

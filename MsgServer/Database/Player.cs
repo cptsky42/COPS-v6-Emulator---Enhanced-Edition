@@ -1,520 +1,736 @@
 ﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+// * Copyright © 2010-2011, 2015
+// * COPS v6 Emulator
 
 using System;
-using System.IO;
-using System.Collections.Generic;
-using COServer.Network;
+
 using COServer.Entities;
-using AMS.Profile;
+using COServer.Network;
+
+using MySql.Data.MySqlClient;
 
 namespace COServer
 {
     public partial class Database
     {
-        public static Boolean Ban(String Name)
+        /// <summary>
+        /// Ban the specified player.
+        /// </summary>
+        /// <param name="aName">The name of the player to ban.</param>
+        /// <returns>True on success, false otherwise.</returns>
+        public static Boolean Ban(String aName)
         {
-            try
-            {
-                if (!Server.SendToAuth(MsgActionExt.Create(
-                    (Int32)Client.Flag.Banned,
-                    Name,
-                    "@UNKNOW_ACC@",
-                    Server.Name,
-                    MsgActionExt.Action.SetChrFlags)))
-                    return false;
-                return true;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return false; }
-        }
+            bool success = false;
 
-        public static Boolean Jail(String Name)
-        {
-            try
+            using (var connection = sDefaultPool.GetConnection())
             {
-                if (!File.Exists(Program.RootPath + "\\Characters\\" + Name + ".chr"))
-                    return false;
-
-                Xml AMSXml = new Xml(Program.RootPath + "\\Characters\\" + Name + ".chr");
-                AMSXml.RootName = "Character";
-                using (AMSXml.Buffer())
+                using (var command = connection.CreateCommand())
                 {
-                    AMSXml.SetValue("Informations", "Jail", AMSXml.GetValue("Informations", "Jail", 0) + 1);
-                    if (World.AllMaps.ContainsKey(6001))
+                    command.CommandText = "UPDATE `account` SET `banned` = @banned WHERE `id` = (SELECT `account_id` FROM `user` WHERE `name` = @name)";
+                    command.Parameters.AddWithValue("@name", aName);
+                    command.Parameters.AddWithValue("@banned", true);
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    try
                     {
-                        AMSXml.SetValue("Informations", "Map", 6001);
-                        AMSXml.SetValue("Informations", "X", 28);
-                        AMSXml.SetValue("Informations", "Y", 75);
+                        int count = command.ExecuteNonQuery();
+                        success = count == 1;
+                    }
+                    catch (MySqlException exc)
+                    {
+                        sLogger.Error("Failed to execute the following cmd : \"{0}\"\nError {1}: {2}",
+                            GetSqlCommand(command), exc.Number, exc.Message);
                     }
                 }
-                AMSXml = null;
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
-            return true;
+
+            return success;
         }
 
-        public static Boolean SynKickOut(String Name)
+        /// <summary>
+        /// Send the specified player to jail.
+        /// </summary>
+        /// <param name="aName">The name of the player to send to jail.</param>
+        /// <returns>True on success, false otherwise.</returns>
+        public static Boolean SendPlayerToJail(String aName)
         {
-            try
-            {
-                if (!File.Exists(Program.RootPath + "\\Characters\\" + Name + ".chr"))
-                    return false;
+            bool success = false;
 
-                Xml AMSXml = new Xml(Program.RootPath + "\\Characters\\" + Name + ".chr");
-                AMSXml.RootName = "Character";
-                using (AMSXml.Buffer())
+            GameMap map = null;
+            if (!MapManager.TryGetMap(MapManager.PRISON_MAP_UID, out map))
+                return false;
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
                 {
-                    AMSXml.SetValue("Informations", "SynUID", 0);
-                    AMSXml.SetValue("Informations", "SynRank", 0);
-                    AMSXml.SetValue("Informations", "SynDonation", 0);
+                    command.CommandText = (
+                        "UPDATE `user` SET `record_map` = @record_map, `record_x` = @record_x, `record_y` = @record_y, " + 
+                        "`jail` = `jail` + 1 WHERE `name` = @name");
+                    command.Parameters.AddWithValue("@name", aName);
+                    command.Parameters.AddWithValue("@record_map", map.Id);
+                    command.Parameters.AddWithValue("@record_x", map.PortalX);
+                    command.Parameters.AddWithValue("@record_y", map.PortalY);
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    try
+                    {
+                        int count = command.ExecuteNonQuery();
+                        success = count == 1;
+                    }
+                    catch (MySqlException exc)
+                    {
+                        sLogger.Error("Failed to execute the following cmd : \"{0}\"\nError {1}: {2}",
+                            GetSqlCommand(command), exc.Number, exc.Message);
+                    }
                 }
-                AMSXml = null;
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
-            return true;
-        }
 
-        public static Boolean Divorce(String Name)
-        {
-            try
+            if (success)
             {
-                if (!File.Exists(Program.RootPath + "\\Characters\\" + Name + ".chr"))
-                    return false;
-
-                Xml AMSXml = new Xml(Program.RootPath + "\\Characters\\" + Name + ".chr");
-                AMSXml.RootName = "Character";
-                using (AMSXml.Buffer()) { AMSXml.SetValue("Informations", "Spouse", "Non"); }
-                AMSXml = null;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
-            return true;
-        }
-
-        public static Boolean GetPlayerInfo(ref Client Client, String Name)
-        {
-            try
-            {
-                if (!File.Exists(Program.RootPath + "\\Characters\\" + Name + ".chr"))
-                    return false;
-
-                Xml AMSXml = new Xml(Program.RootPath + "\\Characters\\" + Name + ".chr");
-                AMSXml.RootName = "Character";
-
-                try
+                Player player = null;
+                if (World.AllPlayerNames.TryGetValue(aName, out player))
                 {
-                    Client.User = new Player(AMSXml.GetValue("Informations", "UniqId", -1), Client);
-                    Player Player = Client.User;
-                    String[] Parts = null;
-
-                    Player.Name = AMSXml.GetValue("Informations", "Name", "NULL");
-                    if (Player.Name == "NULL")
-                    {
-                        AMSXml = null;
-                        return false;
-                    }
-
-                    Player.Spouse = AMSXml.GetValue("Informations", "Spouse", "Non");
-                    Player.Profession = (Byte)AMSXml.GetValue("Informations", "Profession", 0);
-                    Player.Level = (Byte)AMSXml.GetValue("Informations", "Level", 0);
-                    Player.FirstProfession = (Byte)AMSXml.GetValue("Informations", "FirstProfession", 0);
-                    Player.FirstLevel = (Byte)AMSXml.GetValue("Informations", "FirstLevel", 0);
-                    Player.SecondProfession = (Byte)AMSXml.GetValue("Informations", "SecondProfession", 0);
-                    Player.SecondLevel = (Byte)AMSXml.GetValue("Informations", "SecondLevel", 0);
-                    Player.Exp = UInt64.Parse(AMSXml.GetValue("Informations", "Exp", "0"));
-                    //AMSXml.GetValue("Informations", "LastExp", 0);
-                    Player.Strength = (UInt16)AMSXml.GetValue("Informations", "Strength", 0);
-                    Player.Agility = (UInt16)AMSXml.GetValue("Informations", "Agility", 0);
-                    Player.Vitality = (UInt16)AMSXml.GetValue("Informations", "Vitality", 0);
-                    Player.Spirit = (UInt16)AMSXml.GetValue("Informations", "Spirit", 0);
-                    Player.AddPoints = (UInt16)AMSXml.GetValue("Informations", "AddPoints", 0);
-                    Player.Look = UInt32.Parse(AMSXml.GetValue("Informations", "Look", "0"));
-                    Player.Hair = (Int16)AMSXml.GetValue("Informations", "Hair", 0);
-                    Player.Money = AMSXml.GetValue("Informations", "Money", 0);
-                    Player.CPs = AMSXml.GetValue("Informations", "CPs", 0);
-                    Player.VPs = AMSXml.GetValue("Informations", "VPs", 0);
-                    Player.PkPoints = (Int16)AMSXml.GetValue("Informations", "PkPoints", 0);
-                    Player.CurHP = (UInt16)AMSXml.GetValue("Informations", "CurHP", 0);
-                    Player.CurMP = (UInt16)AMSXml.GetValue("Informations", "CurMP", 0);
-                    Player.Metempsychosis = (Byte)AMSXml.GetValue("Informations", "Metempsychosis", 0);
-                    Player.Map = (Int16)AMSXml.GetValue("Informations", "Map", 1002);
-                    Player.X = (UInt16)AMSXml.GetValue("Informations", "X", 400);
-                    Player.Y = (UInt16)AMSXml.GetValue("Informations", "Y", 400);
-                    Player.WHMoney = AMSXml.GetValue("Informations", "WHMoney", 0);
-                    Player.WHPIN = AMSXml.GetValue("Informations", "WHPIN", 0);
-                    Player.KO = AMSXml.GetValue("Informations", "KO", 0);
-                    Player.TimeAdd = AMSXml.GetValue("Informations", "TimeAdd", 0);
-
-                    Player.DblExpEndTime = Environment.TickCount + (AMSXml.GetValue("Informations", "DblExpTime", 0) * 1000);
-                    Player.LuckyTime = AMSXml.GetValue("Informations", "LuckyTime", 0);
-                    Player.CurseEndTime = Environment.TickCount + (AMSXml.GetValue("Informations", "CurseTime", 0) * 1000);
-                    Player.BlessEndTime = Int64.Parse(AMSXml.GetValue("Informations", "BlessTime", "0"));
-                    Player.TrainingTicks = Int64.Parse(AMSXml.GetValue("Informations", "TrainingTime", "0"));
-                    Player.MaxTrainingTime = AMSXml.GetValue("Informations", "MaxTrainingTime", 0);
-
-                    Player.PremiumEndTime = DateTime.FromBinary(Int64.Parse(AMSXml.GetValue("Informations", "Premium", "0")));
-                    if (Player.PremiumEndTime.CompareTo(DateTime.UtcNow) > 0)
-                    {
-                        if (Client.AccLvl < 1)
-                            Client.AccLvl = 1;
-                    }
-
-                    Player.ToS = AMSXml.GetValue("Informations", "ToS", false);
-                    Player.JailC = AMSXml.GetValue("Informations", "Jail", 0);
-
-                    Int16 SynUID = (Int16)AMSXml.GetValue("Informations", "SynUID", 0);
-                    World.AllSyndicates.TryGetValue(SynUID, out Player.Syndicate);
-
-                    if (!World.AllMaps.ContainsKey(Player.Map) || Player.Map == 700)
-                    {
-                        Player.Map = 1002;
-                        Player.X = 400;
-                        Player.Y = 400;
-                    }
-
-                    String Friends = AMSXml.GetValue("Informations", "Friends", "");
-                    Parts = Friends.Split(',');
-                    foreach (String Friend in Parts)
-                    {
-                        String[] Info = Friend.Split(':');
-                        if (Info.Length < 2)
-                            continue;
-
-                        Int32 UniqId = 0;
-                        if (!Int32.TryParse(Info[0], out UniqId))
-                            continue;
-
-                        if (!Player.Friends.ContainsKey(UniqId))
-                            Player.Friends.Add(UniqId, Info[1]);
-                    }
-                    Parts = null;
-
-                    String Enemies = AMSXml.GetValue("Informations", "Enemies", "");
-                    Parts = Enemies.Split(',');
-                    foreach (String Enemy in Parts)
-                    {
-                        String[] Info = Enemy.Split(':');
-                        if (Info.Length < 2)
-                            continue;
-
-                        Int32 UniqId = 0;
-                        if (!Int32.TryParse(Info[0], out UniqId))
-                            continue;
-
-                        if (!Player.Enemies.ContainsKey(UniqId))
-                            Player.Enemies.Add(UniqId, Info[1]);
-                    }
-                    Parts = null;
-
-                    if (Player.Metempsychosis > 0)
-                        Player.AutoAllot = false;
-
-                    if (Player.Look > 9999999)
-                        Player.DelTransform();
-
-                    if (!World.NobilityRank.TryGetValue(Player.UniqId, out Player.Nobility))
-                        Player.Nobility = new Nobility.Info(Player);
-
-                    //MyMath
-                    MyMath.GetHitPoints(Player, true);
-                    MyMath.GetMagicPoints(Player, true);
-                    MyMath.GetPotency(Player, true);
-
-                    AMSXml = null;
-                    return true;
-                }
-                catch (Exception Exc) { Program.WriteLine(Exc); AMSXml = null; return false; }
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return false; }
-        }
-
-        public static Boolean Delete(Player Player)
-        {
-            try
-            {
-                if (!Server.SendToAuth(MsgActionExt.Create(0, "@INVALID_CHAR@", Player.Owner.Account, Server.Name, MsgActionExt.Action.SetCharacter)))
-                    return false;
-
-                Server.SendToAuth(MsgActionExt.Create(0, "", Player.Owner.Account, Server.Name, MsgActionExt.Action.SetAccLvl));
-
-                WeaponSkill[] WeaponSkills = new WeaponSkill[Player.WeaponSkills.Count];
-                Player.WeaponSkills.Values.CopyTo(WeaponSkills, 0);
-                for (Int32 i = 0; i < WeaponSkills.Length; i++)
-                    Player.DelWeaponSkill(WeaponSkills[i], true);
-
-                Magic[] Magics = new Magic[Player.Magics.Count];
-                Player.Magics.Values.CopyTo(Magics, 0);
-                for (Int32 i = 0; i < Magics.Length; i++)
-                    Player.DelMagic(Magics[i], true);
-
-                Item[] Items = new Item[Player.Items.Count];
-                Player.Items.Values.CopyTo(Items, 0);
-                for (Int32 i = 0; i < Items.Length; i++)
-                    Player.DelItem(Items[i], true);
-
-                if (World.NobilityRank.ContainsKey(Player.UniqId))
-                {
-                    World.NobilityRank.Remove(Player.UniqId);
-                    Nobility.Rank.ResetPosition();
+                    player.Move(map.Id, map.PortalX, map.PortalY);
+                    ++player.JailC;
                 }
 
-                //Friends
-
-
-                if (Player.Syndicate != null)
-                    Player.Syndicate.DelMember(Player.Syndicate.GetMemberInfo(Player.UniqId), false);
-
-                String Account = Player.Owner.Account;
-                String Name = Player.Name;
-                String IPAddress = Player.Owner.Socket.IpAddress;
-
-                Player.Disconnect();
-                File.Delete(Program.RootPath + "\\Characters\\" + Name + ".chr");
-
-                Program.Log("Deletion of " + Name + ", with " + Account + " (" + IPAddress + ").");
-                return true;
+                World.BroadcastMsg(new MsgTalk("SYSTEM", "ALLUSERS", aName + " has been sent to jail!", Channel.GM, Color.White));
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); return false; }
+
+            return success;
         }
 
-        public static void Save(Player Player)
+        /// <summary>
+        /// Kick-out the specified player from its guild.
+        /// </summary>
+        /// <param name="aName">The name of the player to kick out.</param>
+        /// <returns>True on success, false otherwise.</returns>
+        public static Boolean LeaveSyn(String aName)
         {
-            Xml AMSXml = null;
-            try
+            bool success = false;
+
+            using (var connection = sDefaultPool.GetConnection())
             {
-                if (!File.Exists(Program.RootPath + "\\Characters\\" + Player.Name + ".chr"))
-                    return;
-
-                AMSXml = new Xml(Program.RootPath + "\\Characters\\" + Player.Name + ".chr");
-                AMSXml.RootName = "Character";
-                using (AMSXml.Buffer())
+                using (var command = connection.CreateCommand())
                 {
-                    AMSXml.SetValue("Informations", "Spouse", Player.Spouse);
-                    AMSXml.SetValue("Informations", "Profession", Player.Profession);
-                    AMSXml.SetValue("Informations", "Level", Player.Level);
-                    AMSXml.SetValue("Informations", "FirstProfession", Player.FirstProfession);
-                    AMSXml.SetValue("Informations", "FirstLevel", Player.FirstLevel);
-                    AMSXml.SetValue("Informations", "SecondProfession", Player.SecondProfession);
-                    AMSXml.SetValue("Informations", "SecondLevel", Player.SecondLevel);
-                    AMSXml.SetValue("Informations", "Exp", Player.Exp);
-                    AMSXml.SetValue("Informations", "Strength", Player.Strength);
-                    AMSXml.SetValue("Informations", "Agility", Player.Agility);
-                    AMSXml.SetValue("Informations", "Vitality", Player.Vitality);
-                    AMSXml.SetValue("Informations", "Spirit", Player.Spirit);
-                    AMSXml.SetValue("Informations", "AddPoints", Player.AddPoints);
-                    AMSXml.SetValue("Informations", "Look", Player.Look);
-                    AMSXml.SetValue("Informations", "Hair", Player.Hair);
-                    AMSXml.SetValue("Informations", "Money", Player.Money);
-                    AMSXml.SetValue("Informations", "CPs", Player.CPs);
-                    AMSXml.SetValue("Informations", "VPs", Player.VPs);
-                    AMSXml.SetValue("Informations", "PkPoints", Player.PkPoints);
-                    AMSXml.SetValue("Informations", "CurHP", Player.CurHP);
-                    AMSXml.SetValue("Informations", "CurMP", Player.CurMP);
-                    AMSXml.SetValue("Informations", "Metempsychosis", Player.Metempsychosis);
+                    command.CommandText = "DELETE FROM `synattr` WHERE `id` = (SELECT `id` FROM `user` WHERE `name` = @name)";
+                    command.Parameters.AddWithValue("@name", aName);
+                    command.Prepare();
 
-                    Map Map = null;
-                    if (World.AllMaps.TryGetValue(Player.Map, out Map))
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    try
                     {
-                        if (!Map.IsRecord_Disable())
+                        int count = command.ExecuteNonQuery();
+                        success = count == 1;
+                    }
+                    catch (MySqlException exc)
+                    {
+                        sLogger.Error("Failed to execute the following cmd : \"{0}\"\nError {1}: {2}",
+                            GetSqlCommand(command), exc.Number, exc.Message);
+                    }
+                }
+            }
+
+            return success;
+        }
+
+        /// <summary>
+        /// Break a friendship.
+        /// </summary>
+        /// <param name="aPlayer">The player breaking the friendship.</param>
+        /// <param name="aFriendName">The name of the friend.</param>
+        /// <returns>True on success, false otherwise.</returns>
+        public static Boolean BreakFriendship(Player aPlayer, String aFriendName)
+        {
+            bool success = false;
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                String friends = "";
+
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT `friends` FROM `user` WHERE `name` = @name";
+                    command.Parameters.AddWithValue("@name", aFriendName);
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        int count = 0;
+                        if (reader.Read())
                         {
-                            AMSXml.SetValue("Informations", "Map", Player.Map);
-                            AMSXml.SetValue("Informations", "X", Player.X);
-                            AMSXml.SetValue("Informations", "Y", Player.Y);
+                            ++count;
+                            friends = reader.GetString("friends");
                         }
-                        else
+                    }
+                }
+
+                String[] parts = friends.Split(',');
+                friends = "";
+
+                foreach (String friend in parts)
+                {
+                    String[] info = friend.Split(':');
+                    if (info.Length < 2)
+                        continue;
+
+                    Int32 friendId = 0;
+                    if (!Int32.TryParse(info[0], out friendId))
+                        continue;
+
+                    if (friendId == aPlayer.UniqId)
+                        continue;
+
+                    friends += friend + ",";
+                }
+
+                if (friends.Length > 0)
+                    friends = friends.Substring(0, friends.Length - 1);
+
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "UPDATE `user` SET `friends` = @friends WHERE `name` = @name";
+                    command.Parameters.AddWithValue("@name", aFriendName);
+                    command.Parameters.AddWithValue("@friends", friends);
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    try
+                    {
+                        int count = command.ExecuteNonQuery();
+                        success = count == 1;
+                    }
+                    catch (MySqlException exc)
+                    {
+                        sLogger.Error("Failed to execute the following cmd : \"{0}\"\nError {1}: {2}",
+                            GetSqlCommand(command), exc.Number, exc.Message);
+                    }
+                }
+            }
+
+            return success;
+        }
+
+        /// <summary>
+        /// Divorce the specified player.
+        /// </summary>
+        /// <param name="aName">The player to divorce.</param>
+        /// <returns>True on success, false otherwise.</returns>
+        public static Boolean Divorce(String aName)
+        {
+            bool success = false;
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "UPDATE `user` SET `mate` = @mate WHERE `name` = @name";
+                    command.Parameters.AddWithValue("@name", aName);
+                    command.Parameters.AddWithValue("@mate", "Non"); // TODO constant for "Non"
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    try
+                    {
+                        int count = command.ExecuteNonQuery();
+                        success = count == 1;
+                    }
+                    catch (MySqlException exc)
+                    {
+                        sLogger.Error("Failed to execute the following cmd : \"{0}\"\nError {1}: {2}",
+                            GetSqlCommand(command), exc.Number, exc.Message);
+                    }
+                }
+            }
+
+            return success;
+        }
+
+        /// <summary>
+        /// Try to retreive the player information for the specified client.
+        /// </summary>
+        /// <param name="aClient">The client</param>
+        /// <returns>True on success, false otherwise.</returns>
+        public static Boolean GetPlayerInfo(ref Client aClient)
+        {
+            bool success = false;
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT * FROM `user` WHERE `account_id` = @account_id";
+                    command.Parameters.AddWithValue("@account_id", aClient.AccountID);
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        int count = 0;
+                        while (reader.Read())
                         {
-                            if (World.AllMaps.ContainsKey(Player.PrevMap))
+                            ++count;
+
+                            Int32 uid = reader.GetInt32("id");
+                            Player player = new Player(uid, aClient);
+
+                            player.Name = reader.GetString("name");
+                            player.Mate = reader.GetString("mate");
+                            player.Look = reader.GetUInt32("lookface");
+                            player.Hair = reader.GetUInt16("hair");
+
+                            player.Money = reader.GetUInt32("money");
+                            player.WHMoney = reader.GetUInt32("money_saved");
+
+                            player.Profession = reader.GetByte("profession");
+                            player.Level = reader.GetByte("level");
+                            player.Exp = reader.GetUInt32("exp");
+                            player.Metempsychosis = reader.GetByte("metempsychosis");
+
+                            player.FirstProfession = reader.GetByte("first_profession");
+                            player.FirstLevel = reader.GetByte("first_level");
+                            player.SecondProfession = reader.GetByte("second_profession");
+                            player.SecondLevel = reader.GetByte("second_level");
+
+                            player.Strength = reader.GetUInt16("force");
+                            player.Agility = reader.GetUInt16("dexterity");
+                            player.Vitality = reader.GetUInt16("health");
+                            player.Spirit = reader.GetUInt16("soul");
+                            player.AddPoints = reader.GetUInt16("add_points");
+
+                            player.CurHP = reader.GetUInt16("life");
+                            player.CurMP = reader.GetUInt16("mana");
+
+                            player.PkPoints = reader.GetInt16("pk");
+                            player.VPs = reader.GetInt32("virtue");
+
+                            UInt32 mapId = reader.GetUInt32("record_map");
+                            if (MapManager.TryGetMap(mapId, out player.Map))
                             {
-                                Map = World.AllMaps[Player.PrevMap];
-                                AMSXml.SetValue("Informations", "Map", Player.PrevMap);
-                                AMSXml.SetValue("Informations", "X", Map.PortalX);
-                                AMSXml.SetValue("Informations", "Y", Map.PortalY);
+                                player.X = reader.GetUInt16("record_x");
+                                player.Y = reader.GetUInt16("record_y");
                             }
                             else
                             {
-                                AMSXml.SetValue("Informations", "Map", 1002);
-                                AMSXml.SetValue("Informations", "X", 400);
-                                AMSXml.SetValue("Informations", "Y", 400);
+                                // map not found...
+                                if (MapManager.TryGetMap(1002, out player.Map))
+                                {
+                                    player.X = 400;
+                                    player.Y = 400;
+                                }
                             }
+
+                            player.PrevMap = player.Map;
+                            player.PrevX = player.X;
+                            player.PrevY = player.Y;
+
+                            player.mLockPin = reader.GetUInt32("depot_pin");
+
+                            // TODO KO in superman table
+                            // Player.KO = AMSXml.GetValue("Informations", "KO", 0);
+
+                            player.TimeAdd = reader.GetInt32("time_add");
+
+                            player.DblExpEndTime = Environment.TickCount + (reader.GetInt32("dbl_exp_time") * 1000);
+                            player.LuckyTime = reader.GetInt32("lucky_time");
+
+                            player.JailC = reader.GetByte("jail");
+
+                            #region Friends / Enemies
+                            String[] parts = null;
+
+                            String friends = reader.GetString("friends");
+                            parts = friends.Split(',');
+                            foreach (String friend in parts)
+                            {
+                                String[] info = friend.Split(':');
+                                if (info.Length < 2)
+                                    continue;
+
+                                Int32 friendId = 0;
+                                if (!Int32.TryParse(info[0], out friendId))
+                                    continue;
+
+                                if (!player.Friends.ContainsKey(friendId))
+                                    player.Friends.Add(friendId, info[1]);
+                            }
+
+                            String enemies = reader.GetString("enemies");
+                            parts = enemies.Split(',');
+                            foreach (String enemy in parts)
+                            {
+                                String[] info = enemy.Split(':');
+                                if (info.Length < 2)
+                                    continue;
+
+                                Int32 enemyId = 0;
+                                if (!Int32.TryParse(info[0], out enemyId))
+                                    continue;
+
+                                if (!player.Enemies.ContainsKey(enemyId))
+                                    player.Enemies.Add(enemyId, info[1]);
+                            }
+                            #endregion
+
+                            //MyMath
+                            player.CalcMaxHP();
+                            player.CalcMaxMP();
+
+                            Database.GetPlayerSyndicate(player);
+                            Database.GetPlayerWeaponSkills(player);
+                            Database.GetPlayerMagics(player);
+
+                            aClient.Player = player;
                         }
 
-                        if (Player.CurHP == 0)
-                        {
-                            Map = World.AllMaps[Player.Map];
-                            AMSXml.SetValue("Informations", "CurHP", 1);
-                            AMSXml.SetValue("Informations", "Map", Map.RebornMap);
+                        success = count == 1;
+                    }
+                }
+            }
 
-                            Map = World.AllMaps[Map.RebornMap];
-                            AMSXml.SetValue("Informations", "X", Map.PortalX);
-                            AMSXml.SetValue("Informations", "Y", Map.PortalY);
+            return success;
+        }
+
+        public static Boolean Delete(Player aPlayer)
+        {
+            bool success = false;
+
+            try
+            {
+                var skills = aPlayer.WeaponSkills;
+                foreach (var skill in skills)
+                    aPlayer.DropSkill(skill, true);
+
+                var magics = aPlayer.Magics;
+                foreach (var magic in magics)
+                    aPlayer.DropMagic(magic, true);
+
+                Item[] items = new Item[aPlayer.Items.Count];
+                aPlayer.Items.Values.CopyTo(items, 0);
+                for (int i = 0; i < items.Length; i++)
+                    aPlayer.DelItem(items[i], true);
+
+                // TODO Friends
+
+                if (aPlayer.Syndicate != null)
+                    aPlayer.Syndicate.LeaveSyn(aPlayer, false, false);
+
+                String account = aPlayer.Client.Account;
+                String name = aPlayer.Name;
+                String ip = aPlayer.Client.IPAddress;
+
+                aPlayer.Disconnect();
+
+                using (var connection = sDefaultPool.GetConnection())
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = "DELETE FROM `user` WHERE `id` = @id";
+                        command.Parameters.AddWithValue("@id", aPlayer.UniqId);
+                        command.Prepare();
+
+                        sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                        try
+                        {
+                            int count = command.ExecuteNonQuery();
+                            success = count == 1;
+                        }
+                        catch (MySqlException exc)
+                        {
+                            sLogger.Error("Failed to execute the following cmd : \"{0}\"\nError {1}: {2}",
+                                GetSqlCommand(command), exc.Number, exc.Message);
                         }
                     }
-                    else
+                }
+
+                Program.Log("Deletion of " + name + ", with " + account + " (" + ip + ").");
+                return success;
+            }
+            catch (Exception exc) { sLogger.Error(exc); return false; }
+        }
+
+        public static Boolean Save(Player aPlayer, bool aIsOnline)
+        {
+            bool success = false;
+
+            // TODO superman table
+            //AMSXml.SetValue("Informations", "KO", 0);
+
+            String friends = "";
+            foreach (var friend in aPlayer.Friends)
+                friends += friend.Key.ToString() + ":" + friend.Value + ",";
+            if (friends.Length > 0)
+                friends = friends.Substring(0, friends.Length - 1);
+
+            String enemies = "";
+            foreach (var enemy in aPlayer.Enemies)
+                enemies += enemy.Key.ToString() + ":" + enemy.Value + ",";
+            if (enemies.Length > 0)
+                enemies = enemies.Substring(0, enemies.Length - 1);
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = (
+                        "UPDATE `user` SET " +
+                        "`money` = @money, `money_saved` = @money_saved,  " +
+                        "`profession` = @profession, `level` = @level, `exp` = @exp, " +
+                        "`first_profession` = @first_profession, `first_level` = @first_level, `second_profession` = @second_profession, `second_level` = @second_level, " +
+                        "`force` = @force, `dexterity` = @dexterity, `health` = @health, `soul` = @soul, `add_points` = @add_points, " +
+                        "`life` = @life, `mana` = @mana, `pk` = @pk, `virtue` = @virtue, " +
+                        "`time_add` = @time_add, " +
+                        "`dbl_exp_time` = @dbl_exp_time, `lucky_time` = @lucky_time, " +
+                        "`record_map` = @record_map, `record_x` = @record_x, `record_y` = @record_y, `friends` = @friends, `enemies` = @enemies, `online` = @online WHERE `id` = @id");
+
+                    command.Parameters.AddWithValue("@id", aPlayer.UniqId);
+
+                    command.Parameters.AddWithValue("@money", aPlayer.Money);
+                    command.Parameters.AddWithValue("@money_saved", aPlayer.WHMoney);
+
+                    command.Parameters.AddWithValue("@profession", aPlayer.Profession);
+                    command.Parameters.AddWithValue("@level", aPlayer.Level);
+                    command.Parameters.AddWithValue("@exp", aPlayer.Exp);
+
+                    command.Parameters.AddWithValue("@first_profession", aPlayer.FirstProfession);
+                    command.Parameters.AddWithValue("@first_level", aPlayer.FirstLevel);
+                    command.Parameters.AddWithValue("@second_profession", aPlayer.SecondProfession);
+                    command.Parameters.AddWithValue("@second_level", aPlayer.SecondLevel);
+
+                    command.Parameters.AddWithValue("@force", aPlayer.Strength);
+                    command.Parameters.AddWithValue("@dexterity", aPlayer.Agility);
+                    command.Parameters.AddWithValue("@health", aPlayer.Vitality);
+                    command.Parameters.AddWithValue("@soul", aPlayer.Spirit);
+                    command.Parameters.AddWithValue("@add_points", aPlayer.AddPoints);
+
+                    command.Parameters.AddWithValue("@life", aPlayer.CurHP > 0 ? aPlayer.CurHP : 1);
+                    command.Parameters.AddWithValue("@mana", aPlayer.CurMP);
+
+                    command.Parameters.AddWithValue("@pk", aPlayer.PkPoints);
+                    command.Parameters.AddWithValue("@virtue", aPlayer.VPs);
+
+                    if (aPlayer.CurHP > 0)
                     {
-                        AMSXml.SetValue("Informations", "Map", 1002);
-                        AMSXml.SetValue("Informations", "X", 400);
-                        AMSXml.SetValue("Informations", "Y", 400);
-
-                        if (Player.CurHP == 0)
-                            AMSXml.SetValue("Informations", "CurHP", 1);
-                    }
-
-                    AMSXml.SetValue("Informations", "WHMoney", Player.WHMoney);
-                    AMSXml.SetValue("Informations", "WHPIN", Player.WHPIN);
-                    AMSXml.SetValue("Informations", "KO", Player.KO);
-                    AMSXml.SetValue("Informations", "TimeAdd", Player.TimeAdd);
-                    if (Player.Nobility != null)
-                        AMSXml.SetValue("Informations", "NobilityDonation", Player.Nobility.Donation);
-                    else
-                        AMSXml.SetValue("Informations", "NobilityDonation", 0);
-                    AMSXml.SetValue("Informations", "KO", 0);
-                    if (Player.DblExpEndTime == 0)
-                        AMSXml.SetValue("Informations", "DblExpTime", 0);
-                    else
-                        AMSXml.SetValue("Informations", "DblExpTime", (Int32)((Player.DblExpEndTime - Environment.TickCount) / 1000));
-                    AMSXml.SetValue("Informations", "LuckyTime", Player.LuckyTime);
-                    if (Player.CurseEndTime == 0)
-                        AMSXml.SetValue("Informations", "CurseTime", 0);
-                    else
-                        AMSXml.SetValue("Informations", "CurseTime", (Int32)((Player.CurseEndTime - Environment.TickCount) / 1000));
-                    AMSXml.SetValue("Informations", "BlessTime", Player.BlessEndTime);
-
-                    AMSXml.SetValue("Informations", "TrainingTime", Player.TrainingTicks);
-                    AMSXml.SetValue("Informations", "MaxTrainingTime", Player.MaxTrainingTime);
-
-                    String Friends = "";
-                    foreach (KeyValuePair<Int32, String> KV in Player.Friends)
-                        Friends += KV.Key.ToString() + ":" + KV.Value + ",";
-                    if (Friends != null && Friends != "")
-                        Friends = Friends.Substring(0, Friends.Length - 1);
-                    AMSXml.SetValue("Informations", "Friends", Friends);
-
-                    String Enemies = "";
-                    foreach (KeyValuePair<Int32, String> KV in Player.Enemies)
-                        Enemies += KV.Key.ToString() + ":" + KV.Value + ",";
-                    if (Enemies != null && Enemies != "")
-                        Enemies = Enemies.Substring(0, Enemies.Length - 1);
-                    AMSXml.SetValue("Informations", "Enemies", Enemies);
-
-                    Syndicate.Member SynMember = null;
-                    if (Player.Syndicate != null)
-                    {
-                        SynMember = Player.Syndicate.GetMemberInfo(Player.UniqId);
-                        if (SynMember != null)
+                        if (!aPlayer.Map.IsRecord_Disable())
                         {
-                            AMSXml.SetValue("Informations", "SynUID", Player.Syndicate.UniqId);
-                            AMSXml.SetValue("Informations", "SynRank", SynMember.Rank);
-                            AMSXml.SetValue("Informations", "SynDonation", SynMember.Donation);
+                            command.Parameters.AddWithValue("@record_map", aPlayer.Map.Id);
+                            command.Parameters.AddWithValue("@record_x", aPlayer.X);
+                            command.Parameters.AddWithValue("@record_y", aPlayer.Y);
                         }
                         else
                         {
-                            AMSXml.SetValue("Informations", "SynUID", 0);
-                            AMSXml.SetValue("Informations", "SynRank", 0);
-                            AMSXml.SetValue("Informations", "SynDonation", 0);
+                            GameMap rebornMap = null;
+                            if (MapManager.TryGetMap(aPlayer.Map.RebornMap, out rebornMap))
+                            {
+                                command.Parameters.AddWithValue("@record_map", rebornMap.Id);
+                                command.Parameters.AddWithValue("@record_x", rebornMap.PortalX);
+                                command.Parameters.AddWithValue("@record_y", rebornMap.PortalY);
+                            }
+                            else
+                            {
+                                command.Parameters.AddWithValue("@record_map", 1002);
+                                command.Parameters.AddWithValue("@record_x", 400);
+                                command.Parameters.AddWithValue("@record_y", 400);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        GameMap rebornMap;
+                        if (MapManager.TryGetMap(aPlayer.Map.RebornMap, out rebornMap))
+                        {
+                            command.Parameters.AddWithValue("@record_map", rebornMap.Id);
+                            command.Parameters.AddWithValue("@record_x", rebornMap.PortalX);
+                            command.Parameters.AddWithValue("@record_y", rebornMap.PortalY);
                         }
                     }
 
-                    AMSXml.SetValue("Informations", "ToS", Player.ToS);
+                    command.Parameters.AddWithValue("@time_add", aPlayer.TimeAdd);
+
+                    if (aPlayer.DblExpEndTime == 0)
+                        command.Parameters.AddWithValue("@dbl_exp_time", 0);
+                    else
+                        command.Parameters.AddWithValue("@dbl_exp_time", (Int32)((aPlayer.DblExpEndTime - Environment.TickCount) / 1000));
+                    command.Parameters.AddWithValue("@lucky_time", aPlayer.LuckyTime);
+
+                    command.Parameters.AddWithValue("@friends", friends);
+                    command.Parameters.AddWithValue("@enemies", enemies);
+                    command.Parameters.AddWithValue("@online", aIsOnline);
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    try
+                    {
+                        int count = command.ExecuteNonQuery();
+                        success = count == 1;
+                    }
+                    catch (MySqlException exc)
+                    {
+                        sLogger.Error("Failed to execute the following cmd : \"{0}\"\nError {1}: {2}",
+                            GetSqlCommand(command), exc.Number, exc.Message);
+                    }
                 }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
-            AMSXml = null;
+
+            return success;
         }
 
-        public static Boolean Register(String Account, String Name, Int32 Look, Byte Profession)
+        /// <summary>
+        /// Update the specified field of the player table.
+        /// </summary>
+        /// <param name="aPlayer">The player to update.</param>
+        /// <param name="aField">The field to update.</param>
+        /// <param name="aValue">The new value.</param>
+        /// <returns>True on success, false otherwise.</returns>
+        public static Boolean UpdateField(Player aPlayer, String aField, object aValue)
         {
-            try
+            bool success = false;
+
+            using (var connection = sDefaultPool.GetConnection())
             {
-                if (File.Exists(Program.RootPath + "\\Characters\\" + Name + ".chr"))
-                    return false;
-
-                Int16[] Points = MyMath.GetLevelStats(1, Profession);
-                if (Points == null)
-                    return false;
-
-                if (!Server.AuthSocket.Connected)
-                    return false;
-
-                if (!Server.SendToAuth(MsgActionExt.Create(0, Name, Account, Server.Name, MsgActionExt.Action.SetCharacter)))
-                    return false;
-
-                Server.SendToAuth(MsgActionExt.Create(0, "", Account, Server.Name, MsgActionExt.Action.SetAccLvl));
-                Server.SendToAuth(MsgActionExt.Create(0, "", Account, Server.Name, MsgActionExt.Action.SetAccFlags));
-
-                Xml AMSXml = new Xml(Program.RootPath + "\\Characters\\" + Name + ".chr");
-                AMSXml.RootName = "Character";
-                using (AMSXml.Buffer())
+                using (var command = connection.CreateCommand())
                 {
-                    Int32 UniqId = World.LastPlayerUID;
-                    World.LastPlayerUID++;
+                    command.CommandText = String.Format("UPDATE `user` SET `{0}` = @field WHERE `id` = @id", aField);
+                    command.Parameters.AddWithValue("@id", aPlayer.UniqId);
+                    command.Parameters.AddWithValue("@field", aValue);
+                    command.Prepare();
 
-                    AMSXml.SetValue("Informations", "UniqId", UniqId);
-                    AMSXml.SetValue("Informations", "Name", Name);
-                    AMSXml.SetValue("Informations", "Spouse", "Non");
-                    AMSXml.SetValue("Informations", "Profession", Profession);
-                    AMSXml.SetValue("Informations", "Level", 1);
-                    AMSXml.SetValue("Informations", "FirstProfession", 0);
-                    AMSXml.SetValue("Informations", "FirstLevel", 0);
-                    AMSXml.SetValue("Informations", "SecondProfession", 0);
-                    AMSXml.SetValue("Informations", "SecondLevel", 0);
-                    AMSXml.SetValue("Informations", "Exp", 0);
-                    AMSXml.SetValue("Informations", "Strength", Points[0]);
-                    AMSXml.SetValue("Informations", "Agility", Points[1]);
-                    AMSXml.SetValue("Informations", "Vitality", Points[2]);
-                    AMSXml.SetValue("Informations", "Spirit", Points[3]);
-                    AMSXml.SetValue("Informations", "AddPoints", 0);
-                    AMSXml.SetValue("Informations", "Look", Look);
-                    AMSXml.SetValue("Informations", "Hair", 310);
-                    AMSXml.SetValue("Informations", "Money", 1000);
-                    AMSXml.SetValue("Informations", "CPs", 0);
-                    AMSXml.SetValue("Informations", "VPs", 0);
-                    AMSXml.SetValue("Informations", "PkPoints", 0);
-                    AMSXml.SetValue("Informations", "CurHP", MyMath.GetHitPoints((UInt16)Points[0], (UInt16)Points[1], (UInt16)Points[2], (UInt16)Points[3], Profession));
-                    AMSXml.SetValue("Informations", "CurMP", MyMath.GetMagicPoints((UInt16)Points[3], Profession));
-                    AMSXml.SetValue("Informations", "Metempsychosis", 0);
-                    AMSXml.SetValue("Informations", "Map", 1010);
-                    AMSXml.SetValue("Informations", "X", 31);
-                    AMSXml.SetValue("Informations", "Y", 83);
-                    AMSXml.SetValue("Informations", "WHMoney", 0);
-                    AMSXml.SetValue("Informations", "WHPIN", 0);
-                    AMSXml.SetValue("Informations", "KO", 0);
-                    AMSXml.SetValue("Informations", "TimeAdd", 0);
-                    AMSXml.SetValue("Informations", "NobilityDonation", 0);
-                    AMSXml.SetValue("Informations", "DblExpTime", 0);
-                    AMSXml.SetValue("Informations", "LuckyTime", 0);
-                    AMSXml.SetValue("Informations", "CurseTime", 0);
-                    AMSXml.SetValue("Informations", "BlessTime", DateTime.UtcNow.AddDays(30).ToBinary());
-                    AMSXml.SetValue("Informations", "Friends", "");
-                    AMSXml.SetValue("Informations", "Enemies", "");
-                    AMSXml.SetValue("Informations", "ToS", "false");
-                    AMSXml.SetValue("Informations", "Jail", "0");
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
 
-                    Item.Create(UniqId, 0, 726100, 0, 0, 0, 0, 0, 3, 0, 1, 1);
+                    try
+                    {
+                        int count = command.ExecuteNonQuery();
+                        success = count == 1;
+                    }
+                    catch (MySqlException exc)
+                    {
+                        sLogger.Error("Failed to execute the following cmd : \"{0}\"\nError {1}: {2}",
+                            GetSqlCommand(command), exc.Number, exc.Message);
+                    }
                 }
-                AMSXml = null;
-                return true;
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); return false; }
+
+            return success;
         }
 
+        /// <summary>
+        /// Create a new player with the specified name and profession.
+        /// </summary>
+        /// <param name="aClient">The client.</param>
+        /// <param name="aName">The player name.</param>
+        /// <param name="aLook">The player look.</param>
+        /// <param name="aProfession">The player profession.</param>
+        /// <returns>True on success, false otherwise.</returns>
+        public static Boolean CreatePlayer(Client aClient, String aName, Int32 aLook, Byte aProfession)
+        {
+            UInt16[] points = MyMath.GetLevelStats(1, aProfession);
+            if (points == null)
+                return false;
+
+            bool created = false;
+
+            DateTime datetime = DateTime.Now.ToUniversalTime();
+            uint creationtime = (uint)((datetime.Year * 10000) + (datetime.Month * 100) + datetime.Day);
+
+            Int32 uid = World.LastPlayerUID++;
+            UInt16 life = (UInt16)((points[0] * 3) + (points[1] * 3) + (points[2] * 24) + (points[3] * 3));
+            UInt16 mana = (UInt16)(points[3] * 5);
+
+            using (var connection = sDefaultPool.GetConnection())
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = (
+                        "INSERT INTO `user` (`account_id`, `id`, `name`, `lookface`, `profession`, " +
+                        "`force`, `dexterity`, `health`, `soul`, `life`, `mana`, `creationtime`, `last_login`) " + 
+                        "VALUES (@account_id, @id, @name, @lookface, @profession, @force, @dexterity, @health, @soul, " + 
+                        "@life, @mana, @creationtime, @last_login)");
+                    command.Parameters.AddWithValue("@account_id", aClient.AccountID);
+                    command.Parameters.AddWithValue("@id", uid);
+                    command.Parameters.AddWithValue("@name", aName);
+                    command.Parameters.AddWithValue("@lookface", aLook);
+                    command.Parameters.AddWithValue("@profession", aProfession);
+                    command.Parameters.AddWithValue("@force", points[0]);
+                    command.Parameters.AddWithValue("@dexterity", points[1]);
+                    command.Parameters.AddWithValue("@health", points[2]);
+                    command.Parameters.AddWithValue("@soul", points[3]);
+                    command.Parameters.AddWithValue("@life", life);
+                    command.Parameters.AddWithValue("@mana", mana);
+                    command.Parameters.AddWithValue("@creationtime", creationtime);
+                    command.Parameters.AddWithValue("@last_login", creationtime);
+                    command.Prepare();
+
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
+
+                    try
+                    {
+                        command.ExecuteNonQuery();
+                        created = true;
+
+                        sLogger.Debug("Created player {0} in database.", aName);
+                    }
+                    catch (MySqlException exc)
+                    {
+                        if (exc.Number != 1062) // duplicate key
+                        {
+                            sLogger.Error("Failed to execute the following cmd : \"{0}\"\nError {1}: {2}",
+                                GetSqlCommand(command), exc.Number, exc.Message);
+                        }
+                    }
+                }
+            }
+
+            if (created)
+            {
+                Item.Create(uid, 0, 726100, 0, 0, 0, 0, 0, 3, 0, 1, 1);
+            }
+
+            return created;
+        }
+
+        /// <summary>
+        /// Get the last available player's ID.
+        /// </summary>
         public static Int32 GetLastPlayerUID()
         {
-            Int32 LastUID = 1000000;
+            Int32 lastUID = Entity.PLAYERID_FIRST;
 
-            String[] Characters = Directory.GetFiles(Program.RootPath + "\\Characters", "*.chr");
-            foreach (String Character in Characters)
+            using (var connection = sDefaultPool.GetConnection())
             {
-                Xml AMSXml = new Xml(Character);
-                AMSXml.RootName = "Character";
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT `id` FROM `user`";
+                    command.Prepare();
 
-                Int32 UID = AMSXml.GetValue("Informations", "UniqId", 1000000);
-                AMSXml = null;
+                    sLogger.Debug("Executing SQL: {0}", GetSqlCommand(command));
 
-                if (UID > LastUID)
-                    LastUID = UID;
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            Int32 uid = reader.GetInt32("id");
+
+                            if (uid > lastUID)
+                                lastUID = uid;
+                        }
+                    }
+                }
             }
-            LastUID++;
-            return LastUID;
+
+            return ++lastUID;
         }
     }
 }

@@ -1,302 +1,255 @@
-﻿// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
 using System.IO;
 using System.Text;
-using System.Threading;
-using System.Net.Sockets;
-using System.Globalization;
+using COServer.Network.Sockets;
 using COServer.Script;
 using COServer.Threads;
-using COServer.Network;
-using AMS.Profile;
-using CO2_CORE_DLL;
-using CO2_CORE_DLL.Net.Sockets;
-using CO2_CORE_DLL.Security.Cryptography;
+using COServer.Workers;
 
 namespace COServer
 {
-    public unsafe class Server
+    public class Server
     {
-        private static MaintenanceSystem Maintenance;
+        /// <summary>
+        /// The logger of the class.
+        /// </summary>
+        private static readonly log4net.ILog sLogger = log4net.LogManager.GetLogger(typeof(Server));
+
+        /// <summary>
+        /// The path of the configuration file.
+        /// </summary>
+        public static readonly String CONFIG_FILE = Program.RootPath + "/MsgServer.ini";
+
+        /// <summary>
+        /// The workers for processing networking I/O.
+        /// </summary>
         public static NetworkIO NetworkIO;
-        public static ServerSocket Socket;
 
-        public static Int32 COSAC_PKey = 0x13FA0F9D;
-        public static Int32 COSAC_GKey = 0x6D5C7962;
+        /// <summary>
+        /// The socket of the server.
+        /// </summary>
+        private static TcpServer sSocket;
 
+        /// <summary>
+        /// The name of the server.
+        /// </summary>
         public static String Name;
-        public static Int32 Version_FR;
-        public static Int32 Version_EN;
 
-        public static TcpClient AuthSocket;
-        public static COCAC AuthCrypto;
-
-        public static String AuthIP;
-        public static Int16 AuthPort;
-
+        /// <summary>
+        /// The time of the launch.
+        /// </summary>
         public static DateTime LaunchTime;
 
-        public static Int32 MaxPlayers;
-
-        public static Boolean Backup_FTP;
-        public static String Backup_Server;
-        public static String Backup_Username;
-        public static String Backup_Password;
-
+        /// <summary>
+        /// Start the execution of the server.
+        /// </summary>
         public static void Run()
         {
-            if (!File.Exists(Program.RootPath + "\\MsgServer.xml"))
+            if (!File.Exists(CONFIG_FILE))
             {
+                sLogger.Fatal("Couldn't find the configuration file at '{0}'.", CONFIG_FILE);
                 Environment.Exit(0);
-                return;
             }
 
-            UInt16 Port = 0;
-            Int32 BackLog = 0;
-            Int32 ThreadAmount = 1;
+            UInt16 port = 0;
+            Int32 backlog = 0;
+            Byte threadAmount = 1;
 
-            Xml AMSXml = new Xml(Program.RootPath + "\\MsgServer.xml");
-            AMSXml.RootName = "MsgServer";
+            String mysql_host, mysql_db, mysql_user, mysql_pwd;
+            int mysql_nb_connections;
 
-            Port = (UInt16)AMSXml.GetValue("Socket", "Port", 5816);
-            BackLog = AMSXml.GetValue("Socket", "BackLog", 100);
-            ThreadAmount = AMSXml.GetValue("Socket", "ThreadAmount", 1);
+            String acc_host, acc_db, acc_user, acc_pwd;
+            int acc_nb_connections;
 
-            AuthIP = AMSXml.GetValue("Program", "AuthIP", "127.0.0.1");
-            AuthPort = (Int16)AMSXml.GetValue("Program", "AuthPort", 9958);
+            String mongo_host, mongo_db, mongo_user, mongo_pwd;
 
-            Name = AMSXml.GetValue("Program", "Name", "NULL");
-            Program.Encoding = Encoding.GetEncoding(AMSXml.GetValue("Program", "Encoding", "iso-8859-1"));
-            Program.Debug = AMSXml.GetValue("Program", "Debug", false);
-            Version_FR = AMSXml.GetValue("Version", "French", 0);
-            Version_EN = AMSXml.GetValue("Version", "English", 0);
-            COSAC_PKey = Int32.Parse(AMSXml.GetValue("Cryptography", "COSAC_PKey", "13FA0F9D"), NumberStyles.HexNumber);
-            COSAC_GKey = Int32.Parse(AMSXml.GetValue("Cryptography", "COSAC_GKey", "6D5C7962"), NumberStyles.HexNumber);
-            Database.Rates = new Database.CRates(AMSXml);
-            MaxPlayers = AMSXml.GetValue("Records", "MaxPlayers", 0);
+            using (Ini doc = new Ini(CONFIG_FILE))
+            {
+                port = doc.ReadUInt16("Socket", "Port", 5816);
+                backlog = doc.ReadInt32("Socket", "BackLog", 100);
+                threadAmount = doc.ReadUInt8("Socket", "ThreadAmount", 1);
 
-            Backup_FTP = AMSXml.GetValue("Backup", "UseFTP", false);
-            Backup_Server = AMSXml.GetValue("Backup", "Server", "ftp://127.0.0.1/");
-            Backup_Username = AMSXml.GetValue("Backup", "Username", "anonymous");
-            Backup_Password = AMSXml.GetValue("Backup", "Password", "");
+                Name = doc.ReadString("Program", "Name", "NULL");
+                Program.Encoding = Encoding.GetEncoding(doc.ReadString("Program", "Encoding", "iso-8859-1"));
+                Program.Debug = doc.ReadBoolean("Program", "Debug", false);
 
-            AMSXml = null;
+                mysql_host = doc.ReadString("MySQL", "Host", "localhost");
+                mysql_db = doc.ReadString("MySQL", "Database", "zfserver");
+                mysql_user = doc.ReadString("MySQL", "Username", "zfserver");
+                mysql_pwd = doc.ReadString("MySQL", "Password", "");
+                mysql_nb_connections = doc.ReadInt32("MySQL", "NbConnections", 1);
 
-            STR.LoadStrRes();
-            Database2.GetItemsInfo();
+                acc_host = doc.ReadString("AccMySQL", "Host", "localhost");
+                acc_db = doc.ReadString("AccMySQL", "Database", "zfserver");
+                acc_user = doc.ReadString("AccMySQL", "Username", "zfserver");
+                acc_pwd = doc.ReadString("AccMySQL", "Password", "");
+                acc_nb_connections = doc.ReadInt32("AccMySQL", "NbConnections", 1);
+
+                mongo_host = doc.ReadString("MongoDB", "Host", "localhost");
+                mongo_db = doc.ReadString("MongoDB", "Database", "zfserver");
+                mongo_user = doc.ReadString("MongoDB", "Username", "zfserver");
+                mongo_pwd = doc.ReadString("MongoDB", "Password", "");
+            }
+
+            StrRes.LoadStrRes();
+
+            if (!Database.SetupAccMySQL(acc_nb_connections, acc_host, acc_db, acc_user, acc_pwd))
+            {
+                sLogger.Fatal("Failed to setup MySQL...");
+                Environment.Exit(0);
+            }
+
+            if (!Database.SetupMySQL(mysql_nb_connections, mysql_host, mysql_db, mysql_user, mysql_pwd))
+            {
+                sLogger.Fatal("Failed to setup MySQL...");
+                Environment.Exit(0);
+            }
+
+            if (!Database.SetupMongo(mongo_host, mongo_db, mongo_user, mongo_pwd))
+            {
+                sLogger.Fatal("Failed to setup MongoDB...");
+                Environment.Exit(0);
+            }
+
+
+            // load Lua VM
+            Task.RegisterFunctions(); // register Lua functions
+            TaskHandler.LoadAllTasks();
+
+            if (!MapManager.LoadData())
+            {
+                sLogger.Fatal("Failed to load DMaps in memory...");
+                Environment.Exit(0);
+            }
+
+            Database.GetItemsInfo();
             Database.GetItemsBonus();
             Database.GetShopsInfo();
-            Database.GetPrizesInfo();
-            Database2.GetMagicsInfo();
+            Database.GetMagicsInfo();
             Database.GetLevelsInfo();
             Database.GetPointAllotInfo();
+            Database.LoadWeaponSkillReqExp();
             Database.GetPortalsInfo();
+            Database.GetAllMaps();
             Database.GetMonstersInfo();
             Database.GetSpawnsInfo();
-            Database.GetAllMaps();
             Database.GetAllNPCs();
             Database.GetAllItems();
-            Database.GetAllWeaponSkills();
-            Database.GetAllMagics();
-            Database.GetAllSyndicates();
-            Database.GetNobilityRank();
-            ScriptHandler.GetAllScripts();
-            Generator.Generate();
-            Maintenance = new MaintenanceSystem();
+            Database.LoadAllSyndicates();
 
-            Int16[] Maps = new Int16[] { 1011, 1020, 1000, 1015, 1038 };
-            foreach (Int16 MapUID in Maps)
-            {
-                Map Map = null;
-                if (!World.AllMaps.TryGetValue(MapUID, out Map))
-                    continue;
+            ServiceEventsListener.Create();
 
-                Map.Holder = GetHolder(MapUID);
-                Map.RenamePole();
-            }
+            NetworkIO = new NetworkIO(threadAmount);
 
-            while (true)
-            {
-                try { AuthSocket = new TcpClient(AuthIP, AuthPort); }
-                catch (SocketException Exc)
-                {
-                    Console.WriteLine("Can't connect to AccServer! Error: {0}", Exc.ErrorCode);
-                    Thread.Sleep(5000);
-                    continue;
-                }
-
-                AuthCrypto = new COCAC();
-                AuthCrypto.GenerateIV(COSAC_PKey, COSAC_GKey);
-                break;
-            }
-            new GeneralThread();
-
-            NetworkIO = new NetworkIO(ThreadAmount);
-
-            Socket = new ServerSocket();
-            Socket.OnConnect += new NetworkClientConnection(ConnectionHandler);
-            Socket.OnReceive += new NetworkClientReceive(ReceiveHandler);
-            Socket.OnDisconnect += new NetworkClientConnection(DisconnectionHandler);
-            Socket.Listen(Port, BackLog);
-            Socket.Accept();
+            sSocket = new TcpServer();
+            sSocket.OnConnect += new NetworkClientConnection(ConnectionHandler);
+            sSocket.OnReceive += new NetworkClientReceive(ReceiveHandler);
+            sSocket.OnDisconnect += new NetworkClientConnection(DisconnectionHandler);
+            sSocket.Listen(port, backlog);
+            sSocket.Accept();
 
             LaunchTime = DateTime.Now;
-            Console.WriteLine("Waiting for new connection...");
+            sLogger.Info("Waiting for new connection...");
         }
 
-        public static Int16 GetHolder(Int16 MapUID)
-        {
-            Int16 Holder = 0;
-            try
-            {
-                Xml AMSXml = new Xml(Program.RootPath + "\\MsgServer.xml");
-                AMSXml.RootName = "MsgServer";
-
-                using (AMSXml.Buffer()) { Holder = (Int16)AMSXml.GetValue("Holders", MapUID.ToString(), 0); }
-
-                AMSXml = null;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
-            return Holder;
-        }
-
-        public static void SetHolder(Int16 MapUID, Int16 Holder)
-        {
-            try
-            {
-                Xml AMSXml = new Xml(Program.RootPath + "\\MsgServer.xml");
-                AMSXml.RootName = "MsgServer";
-
-                using (AMSXml.Buffer()) { AMSXml.SetValue("Holders", MapUID.ToString(), Holder); }
-
-                AMSXml = null;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
-        }
-
+        /// <summary>
+        /// Restart the server (a maintenance will be triggered).
+        /// </summary>
         public static void Restart()
-        { 
-            Maintenance.Execute(false); 
-        }
-
-        public static void SaveMaxPlayersRecord(Int32 PlayersOnline)
         {
-            try
+            MaintenanceSystem.Instance.Trigger();
+
+            if (sSocket != null)
             {
-                Xml AMSXml = new Xml(Program.RootPath + "\\MsgServer.xml");
-                AMSXml.RootName = "MsgServer";
-
-                using (AMSXml.Buffer())
-                {
-                    AMSXml.SetValue("Records", "MaxPlayers", PlayersOnline);
-                }
-
-                AMSXml = null;
+                // disconnect directly the client on connection...
+                sSocket.OnConnect += new NetworkClientConnection(DisconnectionHandler);
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
-            MaxPlayers = PlayersOnline;
-            Program.Log(String.Format("{0} players online on {1}! It's a new record!", PlayersOnline, Name));
         }
 
-        private static void ConnectionHandler(Object Obj)
+        /// <summary>
+        /// Stop the server (a maintenance will be triggered).
+        /// </summary>
+        public static void Stop()
         {
-            try
+            MaintenanceSystem.Instance.Trigger(false);
+
+            if (sSocket != null)
             {
-                NetworkClient Socket = Obj as NetworkClient;
-                if (Socket != null)
-                {
-                    Socket.Owner = new Client(Socket);
-                    NetworkIO.AddClient(Socket.Owner as Client);
-                }
+                // disconnect directly the client on connection...
+                sSocket.OnConnect += new NetworkClientConnection(DisconnectionHandler);
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
         }
 
-        private static void ReceiveHandler(Object Obj, Byte[] Buffer)
+        /// <summary>
+        /// Handle a new connection on the server.
+        /// </summary>
+        /// <param name="aSocket">The socket of the newly connected client.</param>
+        private static void ConnectionHandler(TcpSocket aSocket)
         {
-            NetworkClient Socket = Obj as NetworkClient;
-
             try
             {
-                if (Socket != null && Socket.Owner != null)
+                if (aSocket != null)
+                    aSocket.Wrapper = new Client(aSocket);
+            }
+            catch (Exception exc) { sLogger.Error(exc); }
+        }
+
+        /// <summary>
+        /// Handle the reception of data from a client.
+        /// </summary>
+        /// <param name="aSocket">The socket of the client that sent the data.</param>
+        /// <param name="aData">The data.</param>
+        private static void ReceiveHandler(TcpSocket aSocket, ref Byte[] aData)
+        {
+            try
+            {
+                if (aSocket != null && aSocket.Wrapper != null)
                 {
-                    if (Buffer.Length < sizeof(Msg.MsgHeader))
+                    Client client = aSocket.Wrapper as Client;
+
+                    if (client == null)
                         return;
 
-                    Int32 Length = Buffer.Length;
-
-                    Byte* Received = stackalloc Byte[Length];
-                    Kernel.memcpy(Received, Buffer, Length);
-
-                    (Socket.Owner as Client).Cipher.Decrypt(Received, Length);
-
-                    Int16 Size = 0;
-                    for (Int32 i = 0; i < Length; i += Size)
-                    {
-                        Size = ((Msg.MsgHeader*)(Received + i))->Length;
-                        if (Size < Length)
-                        {
-                            Byte[] Packet = new Byte[Size];
-                            Kernel.memcpy(Packet, Received + i, Size);
-                            Server.NetworkIO.Receive((Socket.Owner as Client), Packet);
-                        }
-                        else
-                        {
-                            Byte[] Packet = new Byte[Length];
-                            Kernel.memcpy(Packet, Received, Length);
-                            Server.NetworkIO.Receive((Socket.Owner as Client), Packet);
-                        }
-                    }
+                    client.Receive(ref aData);
                 }
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); (Socket.Owner as Client).Disconnect(); }
+            catch (Exception exc) { sLogger.Error(exc); aSocket.Disconnect(); }
         }
 
-        private static void DisconnectionHandler(Object Obj)
+        /// <summary>
+        /// Handle the disconnection of a client.
+        /// </summary>
+        /// <param name="aSocket">The socket fo the client now disconnected.</param>
+        private static void DisconnectionHandler(TcpSocket aSocket)
         {
             try
             {
-                NetworkClient Socket = Obj as NetworkClient;
-                if (Socket != null && Socket.Owner != null)
+                if (aSocket != null && aSocket.Wrapper != null)
                 {
-                    if ((Socket.Owner as Client).Account != null)
-                        Program.Log("Disconnection of " + Socket.IpAddress + ", with " + (Socket.Owner as Client).Account + ".");
-                    (Socket.Owner as Client).Disconnect();
+                    Client client = aSocket.Wrapper as Client;
+
+                    if (client.Account != null)
+                        sLogger.Info("Disconnection of {0}, with {1}.", aSocket.IPAddress, client.Account);
+
+                    client.Disconnect();
+                    client.Dispose();
+
+                    aSocket.Wrapper = null;
                 }
-                else if (Socket != null)
-                    Socket.Disconnect();
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); }
-        }
-
-        public static Boolean SendToAuth(Byte[] Buffer)
-        {
-            try
-            {
-                if (Buffer == null)
-                    return false;
-
-                Byte[] Packet = new Byte[Buffer.Length];
-                Buffer.CopyTo(Packet, 0);
-
-                if (AuthCrypto == null || AuthSocket == null)
-                    return false;
-
-                lock (AuthCrypto)
+                else if (aSocket != null)
                 {
-                    lock (AuthSocket)
-                    {
-                        AuthCrypto.Encrypt(ref Packet);
-                        try { AuthSocket.Client.Send(Packet); }
-                        catch { return false; }
-                    }
+                    aSocket.Disconnect();
                 }
-                return true;
             }
-            catch (Exception Exc) { Program.WriteLine(Exc); return false; }
+            catch (Exception exc) { sLogger.Error(exc); }
         }
     }
 }

@@ -1,145 +1,126 @@
-﻿using System;
-using System.Collections.Generic;
+﻿// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
+
+using System;
 using System.Collections.Concurrent;
-using COServer.Network;
+using System.Linq;
 using COServer.Entities;
+using COServer.Network;
 
 namespace COServer
 {
     public class Screen
     {
-        public ConcurrentDictionary<Int32, Entity> Entities;
-        public ConcurrentDictionary<Int32, FloorItem> FloorItems;
-        private Player m_Owner;
+        internal readonly ConcurrentDictionary<Int32, Entity> mEntities = new ConcurrentDictionary<Int32, Entity>();
+        internal readonly ConcurrentDictionary<Int32, FloorItem> mFloorItems = new ConcurrentDictionary<Int32, FloorItem>();
+        private Player mPlayer;
 
-        public Player Owner { get { return m_Owner; } }
-
-        public Screen(Player Owner)
+        public Screen(Player aPlayer)
         {
-            Entities = new ConcurrentDictionary<Int32, Entity>();
-            FloorItems = new ConcurrentDictionary<Int32, FloorItem>();
-            m_Owner = Owner;
+            mPlayer = aPlayer;
         }
 
-        ~Screen()
-        {
-            Entities.Clear();
-            Entities = null;
-            FloorItems.Clear();
-            FloorItems = null;
-            m_Owner = null;
-        }
+        public Boolean Contains(Int32 UniqId) { return mEntities.ContainsKey(UniqId); }
 
-        public Boolean Contains(Int32 UniqId) { return Entities.ContainsKey(UniqId); }
-
-        public void Add(Object Object, Boolean Send)
+        public void Add(Entity aEntity, Boolean aSend)
         {
-            Entity Entity = (Object as Entity);
-            if (Entity != null)
+            if (aEntity.UniqId == mPlayer.UniqId)
+                return;
+
+            if (!mEntities.ContainsKey(aEntity.UniqId))
             {
-                if (!Entities.ContainsKey(Entity.UniqId) && Entity.UniqId != Owner.UniqId)
+                mEntities.TryAdd(aEntity.UniqId, aEntity);
+
+                if (aSend)
                 {
-                    Entities.TryAdd(Entity.UniqId, Entity);
-
-                    if (Send)
+                    if (aEntity.IsPlayer())
                     {
-                        if (Entity.IsPlayer())
-                        {
-                            Owner.Send(MsgPlayer.Create((Object as Player)));
+                        Player player = (Player)aEntity;
 
-                            Byte Param = 0;
-                            if ((Object as Player).CurseEndTime != 0)
-                                Param += 1;
-                            if ((Object as Player).BlessEndTime != 0)
-                                Param += 2;
-                            Owner.Send(MsgUserAttrib.Create((Object as Player), Param, MsgUserAttrib.Type.SizeAdd));
+                        mPlayer.Send(new MsgPlayer(player));
 
-                            if ((Object as Player).SupermanEndTime != 0 || (Object as Player).SupermanEndTime != 0)
-                                Owner.Send(MsgInteract.Create((Object as Player), null, 0xFFFF * (Object as Player).CurKO, MsgInteract.Action.Kill));
-                        }
-                        else if (Entity.IsMonster() && (Object as AdvancedEntity).IsAlive())
-                            Owner.Send(MsgPlayer.Create((Object as Monster)));
-                        else if (Entity.IsNPC())
+                        if (player.HasStatus(Status.SuperAtk) || player.HasStatus(Status.SuperSpeed))
+                            mPlayer.Send(new MsgInteract(player, null, 0xFFFF * (player.CurKO + 1), MsgInteract.Action.Kill));
+                    }
+                    else if (aEntity.IsMonster() && (aEntity as Monster).IsAlive())
+                        mPlayer.Send(new MsgPlayer((aEntity as Monster)));
+                    else if (aEntity.IsNPC())
+                    {
+                        if (aEntity.IsTerrainNPC())
+                            mPlayer.Send(new MsgNpcInfoEx((aEntity as TerrainNPC), (aEntity as TerrainNPC).Name != null));
+                        else
                         {
-                            if (Entity.IsTerrainNPC())
-                                Owner.Send(MsgNpcInfoEx.Create((Object as TerrainNPC), (Object as TerrainNPC).Name != null));
+                            if ((aEntity as NPC).Type == (Byte)NPC.NpcType.Booth)
+                                (aEntity as Booth).SendShow(mPlayer);
                             else
-                            {
-                                if ((Object as NPC).Type == (Byte)NPC.NpcType.Booth)
-                                    (Object as Booth).SendShow(Owner);
-                                else
-                                    Owner.Send(MsgNpcInfo.Create((Object as NPC), false));
-                            }
+                                mPlayer.Send(new MsgNpcInfo((aEntity as NPC), false));
                         }
                     }
                 }
             }
+        }
 
-            FloorItem Item = (Object as FloorItem);
-            if (Item != null)
+        public void Add(FloorItem aItem, Boolean aSend)
+        {
+            if (!mFloorItems.ContainsKey(aItem.Id))
             {
-                if (!FloorItems.ContainsKey(Item.UniqId))
-                {
-                    FloorItems.TryAdd(Item.UniqId, Item);
+                mFloorItems.TryAdd(aItem.Id, aItem);
 
-                    if (Send)
-                        Owner.Send(MsgMapItem.Create(Item, MsgMapItem.Action.Create));
-                }
+                if (aSend)
+                    mPlayer.Send(new MsgMapItem(aItem, MsgMapItem.Action.Create));
             }
         }
 
-        public void Remove(Object Object, Boolean Send)
+        public void Remove(Entity aEntity, Boolean aSend)
         {
-            Entity Entity = (Object as Entity);
-            if (Entity != null)
+            if (mEntities.ContainsKey(aEntity.UniqId))
             {
-                if (Entities.ContainsKey(Entity.UniqId))
-                {
-                    Entity Tmp = null;
-                    Entities.TryRemove(Entity.UniqId, out Tmp);
-                }
-
-                if (Send)
-                    Owner.Send(MsgAction.Create(Entity, 0, MsgAction.Action.LeaveMap));
+                Entity entity = null;
+                mEntities.TryRemove(aEntity.UniqId, out entity);
             }
 
-            FloorItem Item = (Object as FloorItem);
-            if (Item != null)
-            {
-                if (FloorItems.ContainsKey(Item.UniqId))
-                {
-                    FloorItem Tmp = null;
-                    FloorItems.TryRemove(Item.UniqId, out Tmp);
-                }
-
-                if (Send)
-                    Owner.Send(MsgMapItem.Create(Item, MsgMapItem.Action.Delete));
-            }
+            if (aSend)
+                mPlayer.Send(new MsgAction(aEntity, 0, MsgAction.Action.LeaveMap));
         }
 
-        public void Clear(Boolean Send)
+        public void Remove(FloorItem aItem, Boolean aSend)
         {
-            if (Send)
+            if (mFloorItems.ContainsKey(aItem.Id))
             {
-                foreach (Entity Entity in Entities.Values)
-                {
-                    if (Entity.IsPlayer())
-                        (Entity as Player).Screen.Remove(Owner, true);
+                FloorItem item = null;
+                mFloorItems.TryRemove(aItem.Id, out item);
+            }
 
-                    Remove(Entity, true);
+            if (aSend)
+                mPlayer.Send(new MsgMapItem(aItem, MsgMapItem.Action.Delete));
+        }
+
+        public void Clear(Boolean aSend)
+        {
+            if (aSend)
+            {
+                foreach (Entity entity in mEntities.Values)
+                {
+                    if (entity.IsPlayer())
+                        (entity as Player).Screen.Remove(mPlayer, true);
+
+                    Remove(entity, true);
                 }
             }
-            Entities.Clear();
+            mEntities.Clear();
 
 
-            if (Send)
+            if (aSend)
             {
-                foreach (FloorItem Item in FloorItems.Values)
-                {
-                    Remove(Item, true);
-                }
+                foreach (FloorItem item in mFloorItems.Values)
+                    Remove(item, true);
             }
-            FloorItems.Clear();
+            mFloorItems.Clear();
         }
 
         public void ChangeMap()
@@ -148,82 +129,59 @@ namespace COServer
             Check();
         }
 
-        public void Reset(Boolean Send)
-        {
-            Clear(Send);
-            Check();
-        }
-
-        public void Move(Byte[] Buffer)
+        public void Move(Msg aMsg)
         {
             Check();
 
-            foreach (Entity Entity in Entities.Values)
+            foreach (Entity entity in mEntities.Values)
             {
-                if (Entity.IsPlayer())
-                    (Entity as Player).Send(Buffer);
+                if (entity.IsPlayer())
+                    (entity as Player).Send(aMsg);
 
-                if (!MyMath.CanSee(Owner.X, Owner.Y, Entity.X, Entity.Y, 17))
+                if (!MyMath.CanSee(mPlayer.X, mPlayer.Y, entity.X, entity.Y, 17))
                 {
-                    Remove(Entity, true);
-                    if (Entity.IsPlayer())
-                        (Entity as Player).Screen.Remove(Owner, true);
+                    Remove(entity, false);
+                    if (entity.IsPlayer())
+                        (entity as Player).Screen.Remove(mPlayer, false);
                 }
             }
 
-            foreach (FloorItem Item in FloorItems.Values)
+            foreach (FloorItem item in mFloorItems.Values)
             {
-                if (!MyMath.CanSee(Owner.X, Owner.Y, Item.X, Item.Y, 17))
-                    Remove(Item, true);
+                if (!MyMath.CanSee(mPlayer.X, mPlayer.Y, item.X, item.Y, 17))
+                    Remove(item, false);
             }
         }
 
         private void Check()
         {
-            Map Map = null;
-            if (!World.AllMaps.TryGetValue(Owner.Map, out Map))
-                return;
-
-            foreach (Object Object in Map.Entities.Values)
+            foreach (Entity entity in mPlayer.Map.Entities.Values)
             {
-                Entity Entity = (Object as Entity);
-                if (Entity.UniqId == Owner.UniqId)
+                if (entity.UniqId == mPlayer.UniqId)
                     continue;
 
-                if (Entity.IsMonster())
-                    if (MyMath.CanSee(Owner.X, Owner.Y, Entity.X, Entity.Y, (Entity as Monster).ViewRange))
-                        (Entity as Monster).Brain.Awake();
+                if (entity.IsMonster())
+                    if (MyMath.CanSee(mPlayer.X, mPlayer.Y, entity.X, entity.Y, (entity as Monster).ViewRange))
+                        (entity as Monster).Brain.Awake();
 
-                if (Contains(Entity.UniqId))
+                if (Contains(entity.UniqId))
                     continue;
 
-                if (MyMath.CanSee(Owner.X, Owner.Y, Entity.X, Entity.Y, 17))
+                if (MyMath.CanSee(mPlayer.X, mPlayer.Y, entity.X, entity.Y, 17))
                 {
-                    Add(Entity, true);
-                    if (Entity.IsPlayer())
-                        (Entity as Player).Screen.Add(Owner, true);
+                    Add(entity, true);
+                    if (entity.IsPlayer())
+                        (entity as Player).Screen.Add(mPlayer, true);
                 }
             }
 
-            foreach (FloorItem Item in Map.FloorItems.Values)
+            foreach (FloorItem Item in mPlayer.Map.FloorItems.Values)
             {
-                if (Contains(Item.UniqId))
+                if (Contains(Item.Id))
                     continue;
 
-                if (MyMath.CanSee(Owner.X, Owner.Y, Item.X, Item.Y, 17))
+                if (MyMath.CanSee(mPlayer.X, mPlayer.Y, Item.X, Item.Y, 17))
                     Add(Item, true);
-            }
-        }
-
-        public void Update()
-        {
-            foreach (Entity Entity in Entities.Values)
-            {
-                if (Entity.IsPlayer())
-                {
-                    (Entity as Player).Send(MsgAction.Create(Owner, 0, MsgAction.Action.LeaveMap));
-                    (Entity as Player).Send(MsgPlayer.Create(Owner));
-                }
             }
         }
     }

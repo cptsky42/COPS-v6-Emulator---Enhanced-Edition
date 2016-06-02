@@ -1,64 +1,72 @@
-// * Created by Jean-Philippe Boivin
-// * Copyright © 2010-2011
-// * Logik. Project
+// *
+// * ******** COPS v6 Emulator - Open Source ********
+// * Copyright (C) 2010 - 2015 Jean-Philippe Boivin
+// *
+// * Please read the WARNING, DISCLAIMER and PATENTS
+// * sections in the LICENSE file.
+// *
 
 using System;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("COServer.Network.Msg")]
 
 namespace COServer.Network
 {
-    public unsafe class MsgMapInfo : Msg
+    /// <summary>
+    /// Message sent to the client by the MsgServer to fill all the map variables.
+    /// </summary>
+    public class MsgMapInfo : Msg
     {
-        public const Int16 Id = _MSG_MAPINFO;
+        /// <summary>
+        /// This is a "constant" that the child must override.
+        /// It is the type of the message as specified in NetworkDef.cs file.
+        /// </summary>
+        protected override UInt16 _TYPE { get { return MSG_MAPINFO; } }
 
-        [Flags]
-        public enum Flags : int
+        //--------------- Internal Members ---------------
+        private UInt32 __UniqId = 0;
+        private UInt32 __DocId = 0;
+        private UInt32 __Type = 0;
+        //------------------------------------------------
+
+        /// <summary>
+        /// Unique ID of the map.
+        /// </summary>
+        public UInt32 UniqId
         {
-            None = 0x0000,
-            PKField = 0x0001,               //No PkPoints, Not Flashing...
-            ChangeMap_Disable = 0x0002,     //Unused...
-            Record_Disable = 0x0004,        //Do not save this position, save the previous
-            PK_Disable = 0x0008,            //Can't Pk
-            Booth_Enable = 0x0010,          //Can create booth
-            Team_Disable = 0x0020,          //Can't create team
-            Teleport_Disable = 0x0040,      //Can't use scroll
-            Syn_Map = 0x0080,               //Syndicate Map
-            Prison_Map = 0x0100,            //Prison Map
-            Wing_Disable = 0x0200,          //Can't fly
-            Family = 0x0400,                //Family Map
-            MineField = 0x0800,             //Mine Map
-            CallNewbie_Disable = 0x1000,    //Unused...
-            RebornNow_Enable = 0x2000,      //Blessed reborn
-            NewbieProtect = 0x4000,         //Newbie protection
-        };
+            get { return __UniqId; }
+            set { __UniqId = value; WriteUInt32(4, value); }
+        }
 
-        [StructLayout(LayoutKind.Sequential)]
-        public struct MsgInfo
+        /// <summary>
+        /// Doc ID of the map.
+        /// </summary>
+        public UInt32 DocId
         {
-            public MsgHeader Header;
-            public Int32 MapId;
-            public Int32 MiniMap;
-            public Int32 Flags;
-        };
+            get { return __DocId; }
+            set { __DocId = value; WriteUInt32(8, value); }
+        }
 
-        public static Byte[] Create(Map Map)
+        /// <summary>
+        /// Type (flags) of the map.
+        /// </summary>
+        public UInt32 Type
         {
-            try
-            {
-                MsgInfo* pMsg = stackalloc MsgInfo[1];
-                pMsg->Header.Length = (Int16)sizeof(MsgInfo);
-                pMsg->Header.Type = Id;
+            get { return __Type; }
+            set { __Type = value; WriteUInt32(12, value); }
+        }
 
-                pMsg->MapId = Map.UniqId;
-                pMsg->MiniMap = Map.Id;
-                pMsg->Flags = Map.Flags;
-
-                Byte[] Out = new Byte[pMsg->Header.Length];
-                Marshal.Copy((IntPtr)pMsg, Out, 0, Out.Length);
-
-                return Out;
-            }
-            catch (Exception Exc) { Program.WriteLine(Exc); return null; }
+        /// <summary>
+        /// Create a new MsgMapInfo packet for the specified map.
+        /// </summary>
+        /// <param name="aMap">The map object</param>
+        public MsgMapInfo(GameMap aMap)
+            : base(16)
+        {
+            UniqId = aMap.Id;
+            DocId = aMap.DocId;
+            Type = aMap.Type;
         }
     }
 }
